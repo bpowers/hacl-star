@@ -48,7 +48,7 @@ include Makefile.prepare
 #
 
 .verify-banner:
-	@echo $(CYAN)"# Verification of the HACL*"$(NORMAL)
+	@echo -e $(CYAN)"# Verification of the HACL*"$(NORMAL)
 
 verify-ct:
 	$(MAKE) -C code ct
@@ -59,7 +59,7 @@ verify-secure_api: secure_api.dir-verify
 
 
 verify: .verify-banner verify-ct verify-specs verify-code verify-secure_api
-	@echo $(CYAN)"\nDone ! Please check the verification output"$(NORMAL)
+	@echo -e $(CYAN)"\nDone ! Please check the verification output"$(NORMAL)
 
 verify-nss:
 	@echo $(CYAN)"# Verification of the HACL* algorithms used by NSS"$(NORMAL)

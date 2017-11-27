@@ -3,6 +3,7 @@
 *.exe
 *.exe.dSYM
 out.krml
+*~
 
 build/
 build-experimental/

@@ -36,6 +36,7 @@ SPEC_FILES=	Spec.Chacha20.Lemmas.fst \
 		Spec.SHA2_384.fst \
 		Spec.SHA2_512.fst \
 		Spec.HMAC.fst \
+		Spec.Shorthash.SipHash24.fst \
 		Spec.Ed25519.fst
 
 hints: $(addsuffix .hints, $(SPEC_FILES))
@@ -156,6 +157,14 @@ hmac_sha2_512.exe: Spec.HMAC.SHA2_512.fst
 	@echo 'let _ = print_string (if test() then "SUCCESS\n" else "FAILURE\n")' >> hmac-sha2_512-spec/Spec_HMAC_SHA2_512.ml
 	$(OCAMLOPT) -I hmac-sha2_512-spec $(OCAML_INCLUDES) hmac-sha2_512-spec/FStar_Endianness.ml hmac-sha2_512-spec/Spec_Loops.ml hmac-sha2_512-spec/Spec_Lib.ml hmac-sha2_512-spec/Seq_Create.ml hmac-sha2_512-spec/Spec_SHA2_512.ml hmac-sha2_512-spec/Spec_HMAC_SHA2_512.ml -o hmac_sha2_512.exe
 	./hmac_sha2_512.exe
+
+shorthash_siphash24.exe: Spec.Shorthash.SipHash24.fst
+	$(MAKE) -C ../code/lib/ml
+	mkdir -p shorthash-siphash24-spec
+	$(FSTAR_EXTRACT) --odir shorthash-siphash24-spec $^
+	@echo -e '\n\nlet _ = print_string (if test() then "SUCCESS\n" else "FAILURE\n")' >> shorthash-siphash24-spec/Spec_Shorthash_SipHash24.ml
+	$(OCAMLOPT) -I shorthash-siphash24-spec $(OCAML_INCLUDES) shorthash-siphash24-spec/FStar_Endianness.ml shorthash-siphash24-spec/Spec_Loops.ml shorthash-siphash24-spec/Spec_Lib.ml shorthash-siphash24-spec/Spec_Shorthash_SipHash24.ml -o shorthash_siphash24.exe
+	./shorthash_siphash24.exe
 
 ed25519.exe: Spec.SHA512.fst Spec.Ed25519.fst
 	$(MAKE) -C ../code/lib/ml

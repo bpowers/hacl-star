@@ -47,6 +47,7 @@ SNAPSHOT_FILES= $(addprefix snapshots/kremlib/, kremlib.h kremlib.c kremlib_base
 	$(addprefix code/hash/sha2-c/, Hacl_SHA2_384.*) \
 	$(addprefix code/hash/sha2-c/, Hacl_SHA2_512.*) \
 	$(addprefix code/hmac/hmac-c/, Hacl_HMAC_SHA2_256.*) \
+	$(addprefix code/shorthash/shorthash-c/, Hacl_Shorthash_SipHash24.*) \
 	$(addprefix code/salsa-family/chacha-vec128-c/, Hacl_Chacha20_Vec128.*)
 
 SNAPSHOT_CCOMP_FILES=$(KREMLIN_HOME)/kremlib/kremlib.c $(KREMLIN_HOME)/kremlib/kremlib.h \

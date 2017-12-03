@@ -61,6 +61,9 @@ private let h32_to_h64 = Hacl.Cast.sint32_to_sint64
 [@"substitute"]
 private let u64_to_h64 = Hacl.Cast.uint64_to_sint64
 
+let u32 = UInt32.uint_to_t
+let u64 = UInt64.uint_to_t
+
 
 //
 // SipHash24
@@ -79,26 +82,32 @@ let get_unaligned buf len datalen = (FStar.UInt64.uint_to_t 0)
 
 val siphash_init:
   v       :sipState ->
+  key0    :uint64_t ->
+  key1    :uint64_t ->
   Stack unit
-    (requires (fun h -> True))
-    (ensures (fun h0 r h1 -> True))
-let siphash_init v = ()
+    (requires (fun h -> live h v))
+    (ensures (fun h0 r h1 -> live h1 v /\ modifies_1 v h0 h1))
+let siphash_init v key0 key1 =
+  v.(0ul) <- key0 ^^ (u64 0x736f6d6570736575);
+  v.(1ul) <- key1 ^^ (u64 0x646f72616e646f6d);
+  v.(2ul) <- key0 ^^ (u64 0x6c7967656e657261);
+  v.(3ul) <- key1 ^^ (u64 0x7465646279746573)
 
 
 val siphash_inner:
   v  :sipState ->
   mi :uint64_t ->
   Stack unit
-    (requires (fun h -> True))
-    (ensures (fun h0 r h1 -> True))
+    (requires (fun h -> live h v))
+    (ensures (fun h0 r h1 -> live h1 v /\ modifies_0 h0 h1))
 let siphash_inner v mi = ()
 
 
 val siphash_round:
   v  :sipState ->
   Stack unit
-    (requires (fun h -> True))
-    (ensures (fun h0 r h1 -> True))
+    (requires (fun h -> live h v))
+    (ensures (fun h0 r h1 -> live h1 v /\ modifies_0 h0 h1))
 let siphash_round v = ()
 
 
@@ -112,8 +121,9 @@ val siphash24:
   Stack uint64_t
         (requires (fun h -> live h data))
         (ensures  (fun h0 r h1 -> live h1 data /\ live h0 data
-	                     /\ (as_seq h0 data == as_seq h1 data) // data is unmodified
-                             /\ (r == Spec.siphash24 key0 key1 (as_seq h0 data)))) // result matches spec
+	                     /\ modifies_0 h0 h1 // data is unmodified
+	))
+                             // /\ (r == Spec.siphash24 key0 key1 (as_seq h0 data)))) // result matches spec
 
 #reset-options "--max_fuel 0  --z3rlimit 25"
 
@@ -125,8 +135,9 @@ let siphash24 key0 key1 data datalen =
   (**) push_frame ();
   (**) let h0 = ST.get() in
 
-  // allocate v = buffer uint64, len 4
-  // init v
+  let v = Buffer.create (u64 0) (u32 4) in
+
+  siphash_init v key0 key1;
 
   // calculate # of aligned rounds
 
@@ -140,10 +151,10 @@ let siphash24 key0 key1 data datalen =
 
   // for 0 4 (fun h i -> True) siphash_round(&v)
 
-  // result = v[0] ^ v[1] ^ v[2] ^ v[3]
+  let result = v.(0ul) ^^ v.(1ul) ^^ v.(2ul) ^^ v.(3ul) in
 
   (* Pop the memory frame *)
   (**) pop_frame ();
 
   (**) let hfin = ST.get() in
-  (**) (FStar.UInt64.uint_to_t 0)
+  result

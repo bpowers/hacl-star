@@ -17,8 +17,8 @@ module U32 = FStar.UInt32
 module U64 = FStar.UInt64
 
 let u8 = UInt8.uint_to_t
-let u64 = UInt64.uint_to_t
 let u32 = UInt32.uint_to_t
+let u64 = UInt64.uint_to_t
 
 #set-options "--initial_fuel 0 --initial_ifuel 0 --max_fuel 0 --max_ifuel 0"
 

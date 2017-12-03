@@ -43,6 +43,9 @@ private let uint64_ht = Hacl.UInt64.t
 private let uint32_p = Buffer.buffer uint32_ht
 private let uint8_p  = Buffer.buffer uint8_ht
 
+type buffer   = Buffer.buffer uint64_t
+type sipState = b:Buffer.buffer uint64_t{Buffer.length b = 4}
+
 
 (* Definitions of aliases for functions *)
 [@"substitute"]
@@ -62,6 +65,41 @@ private let u64_to_h64 = Hacl.Cast.uint64_to_sint64
 //
 // SipHash24
 //
+
+
+val get_unaligned:
+  buf     :buffer ->
+  len     :uint64_t{len = (FStar.UInt64.uint_to_t (Buffer.length buf))} ->
+  datalen :uint64_t{(U64.v datalen) >= (U64.v len)} ->
+  Stack (uint64_t)
+    (requires (fun h -> True))
+    (ensures (fun h0 r h1 -> True))
+let get_unaligned buf len datalen = (FStar.UInt64.uint_to_t 0)
+
+
+val siphash_init:
+  v       :sipState ->
+  Stack unit
+    (requires (fun h -> True))
+    (ensures (fun h0 r h1 -> True))
+let siphash_init v = ()
+
+
+val siphash_inner:
+  v  :sipState ->
+  mi :uint64_t ->
+  Stack unit
+    (requires (fun h -> True))
+    (ensures (fun h0 r h1 -> True))
+let siphash_inner v mi = ()
+
+
+val siphash_round:
+  v  :sipState ->
+  Stack unit
+    (requires (fun h -> True))
+    (ensures (fun h0 r h1 -> True))
+let siphash_round v = ()
 
 
 #reset-options "--max_fuel 0  --z3rlimit 20"
@@ -86,6 +124,23 @@ let siphash24 key0 key1 data datalen =
   (* Push a new memory frame *)
   (**) push_frame ();
   (**) let h0 = ST.get() in
+
+  // allocate v = buffer uint64, len 4
+  // init v
+
+  // calculate # of aligned rounds
+
+  // for 0 aligned_round_count (fun h i -> True) aligned_body
+
+  // final_off = (datalen / 8) * 8
+  // final_mi = get_unaligned(msg[final_off:], data_len - final_off, datalen)
+  // siphash_inner(&v, final_mi)
+
+  // v[2] ^= 0xff
+
+  // for 0 4 (fun h i -> True) siphash_round(&v)
+
+  // result = v[0] ^ v[1] ^ v[2] ^ v[3]
 
   (* Pop the memory frame *)
   (**) pop_frame ();

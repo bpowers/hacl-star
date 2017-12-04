@@ -1,32 +1,29 @@
 module Hacl.Impl.Shorthash.SipHash24
 
-open FStar.Mul
-open FStar.Ghost
-open FStar.HyperStack
+module ST = FStar.HyperStack.ST
+
 open FStar.HyperStack.All
-open FStar.HyperStack.ST
 open FStar.Buffer
 
 open C.Loops
 
-open Hacl.Spec.Endianness
-open Hacl.Cast
-open Hacl.UInt8
-open Hacl.UInt32
-open FStar.UInt32
+// open Hacl.Spec.Endianness
+open FStar.Endianness
+open Hacl.Endianness
+// open Hacl.Cast
+// open Hacl.UInt8
+// open Hacl.UInt32
+// open FStar.UInt32
 open Hacl.UInt64
 open FStar.UInt64
 
 
+
+
 (* Definition of aliases for modules *)
-module ST = FStar.HyperStack.ST
-module U8 = FStar.UInt8
 module U32 = FStar.UInt32
 module U64 = FStar.UInt64
-
-module H8 = Hacl.UInt8
-module H32 = Hacl.UInt32
-module H64 = Hacl.UInt64
+module H64 = FStar.UInt64
 
 module Spec = Spec.Shorthash.SipHash24
 
@@ -77,22 +74,80 @@ let siphash_init v key0 key1 =
   v.(2ul) <- key0 ^^ 0x6c7967656e657261uL;
   v.(3ul) <- key1 ^^ 0x7465646279746573uL
 
+// from chacha20 impl
+[@ "c_inline"]
+private let rotate_left (a:uint64_t) (s:uint32_t{0 < U32.v s && U32.v s < 64}) : Tot uint64_t =
+  (a <<^ s) |^ (a >>^ (FStar.UInt32.(64ul -^ s)))
 
-val siphash_inner:
-  v  :sipState ->
-  mi :uint64_t ->
-  Stack unit
-    (requires (fun h -> live h v))
-    (ensures (fun h0 r h1 -> live h1 v /\ modifies_0 h0 h1))
-let siphash_inner v mi = ()
-
+#reset-options "--max_fuel 10  --z3rlimit 25"
 
 val siphash_round:
   v  :sipState ->
   Stack unit
     (requires (fun h -> live h v))
-    (ensures (fun h0 r h1 -> live h1 v /\ modifies_0 h0 h1))
-let siphash_round v = ()
+    (ensures (fun h0 r h1 -> live h1 v /\ modifies_1 v h0 h1))
+let siphash_round v =
+  (**) let h0 = ST.get() in
+  let op_Less_Less_Less = rotate_left in
+  let v0 = v.(0ul) in
+  let v1 = v.(1ul) in
+  let v2 = v.(2ul) in
+  let v3 = v.(3ul) in
+  v.(0ul) <- v0 +%^ v1;
+  let v0 = v.(0ul) in
+  v.(2ul) <- v2 +%^ v3;
+  let v2 = v.(2ul) in
+  v.(1ul) <- v1 <<< 13ul;
+  let v1 = v.(1ul) in
+  v.(3ul) <- v3 <<< 16ul;
+  let v3 = v.(3ul) in
+
+  (**) let h1 = ST.get() in
+  (**) assert(modifies_1 v h0 h1);
+
+  v.(1ul) <- v1 ^^ v0;
+  let v1 = v.(1ul) in
+  v.(3ul) <- v3 ^^ v2;
+  let v3 = v.(3ul) in
+
+  v.(0ul) <- v0 <<< 32ul;
+  let v0 = v.(0ul) in
+
+  (**) let h2 = ST.get() in
+  (**) assert(modifies_1 v h1 h2);
+
+  v.(2ul) <- v2 +%^ v1;
+  let v2 = v.(2ul) in
+  v.(0ul) <- v0 +%^ v3;
+  let v0 = v.(0ul) in
+
+  v.(1ul) <- v1 <<< 17ul;
+  let v1 = v.(1ul) in
+  v.(3ul) <- v3 <<< 21ul;
+  let v3 = v.(3ul) in
+
+  (**) let h3 = ST.get() in
+  (**) assert(modifies_1 v h2 h3);
+
+  v.(1ul) <- v1 ^^ v2;
+  let v1 = v.(1ul) in
+  v.(3ul) <- v3 ^^ v0;
+  let v3 = v.(3ul) in
+
+  v.(2ul) <- v2 <<< 32ul
+
+
+inline_for_extraction
+val siphash_inner:
+  v  :sipState ->
+  mi :uint64_t ->
+  Stack unit
+    (requires (fun h -> live h v))
+    (ensures (fun h0 r h1 -> live h1 v /\ modifies_1 v h0 h1))
+let siphash_inner v mi =
+  v.(3ul) <- v.(3ul) ^^ mi;
+  siphash_round v;
+  v.(0ul) <- v.(0ul) ^^ mi
 
 #reset-options "--max_fuel 0  --z3rlimit 20"
 
@@ -131,8 +186,11 @@ let siphash24 key0 key1 data datalen =
     Stack unit
       (requires (fun h -> live h v /\ live h data))
       (ensures (fun h0 r h1 -> live h1 v /\ live h1 data /\ modifies_1 v h0 h1))
-    =
-    ()
+    = (
+      let off = i `U32.mul_mod` 8ul in
+      let mi = hload64_le (Buffer.sub data i 8ul) in
+      siphash_inner v mi
+    )
   in
   for 0ul aligned_rounds (fun h i -> live h v /\ live h data /\ modifies_1 v h1 h) aligned_body;
 

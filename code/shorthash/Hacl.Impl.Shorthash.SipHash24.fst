@@ -142,24 +142,27 @@ val siphash24:
 
 val get_unaligned:
   buf     :uint8_p ->
-  len     :uint32_t{U32.v len = (Buffer.length buf)} ->
+  len     :uint32_t{U32.v len = (Buffer.length buf) /\ U32.v len < 8} ->
   datalen :uint32_t{U32.v datalen >= U32.v len} ->
   Stack (uint64_t)
     (requires (fun h -> live h buf))
     (ensures (fun h0 r h1 -> live h1 buf /\ modifies_0 h0 h1))
 let get_unaligned buf len datalen =
-  let mi = 0uL in
+  (**) push_frame ();
+  let mi: uint64_p = Buffer.create 0uL 1ul in
+  (**) let h0 = ST.get() in
   let body (i:uint32_t {U32.v 0ul <= U32.v i /\ i `U32.lt` len}) :
     Stack unit
-      (requires (fun h -> live h buf))
-      (ensures (fun h0 r h1 -> live h1 buf /\ modifies_0 h0 h1))
-    =
-      ()
+      (requires (fun h -> live h buf /\ live h mi))
+      (ensures (fun h0 r h1 -> live h1 buf /\ live h1 mi /\ modifies_1 mi h0 h1))
+    = (
+    let n = buf.(i) in
+    mi.(0ul) <- (FStar.Int.Cast.uint8_to_uint64 n) <<^ (i `U32.mul` 8ul))
   in
-  (**) let h0 = ST.get() in
-  for 0ul len (fun h i -> live h buf /\ modifies_0 h0 h) body;
-  let mi = mi +%^ (FStar.Int.Cast.uint32_to_uint64 (datalen `U32.rem` 256ul) <<^ 56ul) in
-  mi
+  for 0ul len (fun h i -> live h buf /\ live h mi /\ modifies_1 mi h0 h) body;
+  let result: uint64_t = mi.(0ul) +%^ (FStar.Int.Cast.uint32_to_uint64 (datalen `U32.rem` 256ul) <<^ 56ul) in
+  (**) pop_frame ();
+  result
 
 
 #reset-options "--max_fuel 0  --z3rlimit 25"
@@ -168,7 +171,6 @@ let siphash24 key0 key1 data datalen =
 
   (**) let hinit = ST.get() in
 
-  (* Push a new memory frame *)
   (**) push_frame ();
   (**) let h0 = ST.get() in
 

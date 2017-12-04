@@ -12,6 +12,7 @@ open FStar.UInt64
 module ST = FStar.HyperStack.ST
 module Spec = Spec.Shorthash.SipHash24
 module SipHash = Hacl.Impl.Shorthash.SipHash24
+module U32 = FStar.UInt32
 
 
 (* Definition of base types *)
@@ -31,7 +32,7 @@ val siphash24:
   key0    :uint64_t ->
   key1    :uint64_t ->
   data    :uint8_p  {length data < pow2 32} ->
-  datalen :uint64_t {v datalen = length data} ->
+  datalen :uint32_t {U32.v datalen = length data} ->
   Stack uint64_t
         (requires (fun h -> live h data))
         (ensures  (fun h0 r h1 -> live h1 data /\ live h0 data

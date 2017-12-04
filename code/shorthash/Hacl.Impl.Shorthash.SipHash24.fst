@@ -40,26 +40,10 @@ private let uint8_ht  = Hacl.UInt8.t
 private let uint32_ht = Hacl.UInt32.t
 private let uint64_ht = Hacl.UInt64.t
 
-private let uint32_p = Buffer.buffer uint32_ht
 private let uint8_p  = Buffer.buffer uint8_ht
+private let uint64_p  = Buffer.buffer uint64_ht
 
-type buffer   = Buffer.buffer uint64_t
-type sipState = b:Buffer.buffer uint64_t{Buffer.length b = 4}
-
-
-(* Definitions of aliases for functions *)
-[@"substitute"]
-private let u8_to_h8 = Hacl.Cast.uint8_to_sint8
-[@"substitute"]
-private let u32_to_h32 = Hacl.Cast.uint32_to_sint32
-[@"substitute"]
-private let u32_to_h64 = Hacl.Cast.uint32_to_sint64
-[@"substitute"]
-private let h32_to_h8  = Hacl.Cast.sint32_to_sint8
-[@"substitute"]
-private let h32_to_h64 = Hacl.Cast.sint32_to_sint64
-[@"substitute"]
-private let u64_to_h64 = Hacl.Cast.uint64_to_sint64
+type sipState = b:uint64_p{Buffer.length b = 4}
 
 let u32 = UInt32.uint_to_t
 let u64 = UInt64.uint_to_t
@@ -71,13 +55,13 @@ let u64 = UInt64.uint_to_t
 
 
 val get_unaligned:
-  buf     :buffer ->
-  len     :uint64_t{len = (FStar.UInt64.uint_to_t (Buffer.length buf))} ->
-  datalen :uint64_t{(U64.v datalen) >= (U64.v len)} ->
+  buf     :uint64_p ->
+  len     :uint64_t{v len = (Buffer.length buf)} ->
+  datalen :uint64_t{v datalen >= v len} ->
   Stack (uint64_t)
-    (requires (fun h -> True))
-    (ensures (fun h0 r h1 -> True))
-let get_unaligned buf len datalen = (FStar.UInt64.uint_to_t 0)
+    (requires (fun h -> live h buf))
+    (ensures (fun h0 r h1 -> live h1 buf /\ modifies_0 h0 h1))
+let get_unaligned buf len datalen = 0uL
 
 
 val siphash_init:
@@ -88,10 +72,10 @@ val siphash_init:
     (requires (fun h -> live h v))
     (ensures (fun h0 r h1 -> live h1 v /\ modifies_1 v h0 h1))
 let siphash_init v key0 key1 =
-  v.(0ul) <- key0 ^^ (u64 0x736f6d6570736575);
-  v.(1ul) <- key1 ^^ (u64 0x646f72616e646f6d);
-  v.(2ul) <- key0 ^^ (u64 0x6c7967656e657261);
-  v.(3ul) <- key1 ^^ (u64 0x7465646279746573)
+  v.(0ul) <- key0 ^^ 0x736f6d6570736575uL;
+  v.(1ul) <- key1 ^^ 0x646f72616e646f6duL;
+  v.(2ul) <- key0 ^^ 0x6c7967656e657261uL;
+  v.(3ul) <- key1 ^^ 0x7465646279746573uL
 
 
 val siphash_inner:
@@ -110,14 +94,14 @@ val siphash_round:
     (ensures (fun h0 r h1 -> live h1 v /\ modifies_0 h0 h1))
 let siphash_round v = ()
 
-
 #reset-options "--max_fuel 0  --z3rlimit 20"
 
+// datalen needs to be representable as a 32-bit unsigned int
 val siphash24:
   key0    :uint64_t ->
   key1    :uint64_t ->
   data    :uint8_p  {length data < pow2 32} ->
-  datalen :uint64_t {v datalen = length data} ->
+  datalen :uint32_t {U32.v datalen = length data} ->
   Stack uint64_t
         (requires (fun h -> live h data))
         (ensures  (fun h0 r h1 -> live h1 data /\ live h0 data
@@ -135,13 +119,24 @@ let siphash24 key0 key1 data datalen =
   (**) push_frame ();
   (**) let h0 = ST.get() in
 
-  let v = Buffer.create (u64 0) (u32 4) in
+  let v = Buffer.create 0uL 4ul in
 
   siphash_init v key0 key1;
 
-  // calculate # of aligned rounds
+  (**) let h1 = ST.get() in
 
-  // for 0 aligned_round_count (fun h i -> True) aligned_body
+  let aligned_rounds = datalen `U32.div` 8ul in
+
+  let aligned_body (i:uint32_t {U32.v 0ul <= U32.v i /\ i `U32.lt` aligned_rounds}) :
+    Stack unit
+      (requires (fun h -> live h v /\ live h data))
+      (ensures (fun h0 r h1 -> live h1 v /\ live h1 data /\ modifies_1 v h0 h1))
+    =
+    ()
+  in
+  for 0ul aligned_rounds (fun h i -> live h v /\ live h data /\ modifies_1 v h1 h) aligned_body;
+
+  (**) let h2 = ST.get() in
 
   // final_off = (datalen / 8) * 8
   // final_mi = get_unaligned(msg[final_off:], data_len - final_off, datalen)

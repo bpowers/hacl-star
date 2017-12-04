@@ -61,10 +61,10 @@ let to_state v0 v1 v2 v3 =
 val init: n:nat{n < 4} -> key:UInt64.t -> Tot UInt64.t
 let init  n key =
   match n with
-  | 0 -> key ^^ (u64 0x736f6d6570736575)
-  | 1 -> key ^^ (u64 0x646f72616e646f6d)
-  | 2 -> key ^^ (u64 0x6c7967656e657261)
-  | 3 -> key ^^ (u64 0x7465646279746573)
+  | 0 -> key ^^ 0x736f6d6570736575uL
+  | 1 -> key ^^ 0x646f72616e646f6duL
+  | 2 -> key ^^ 0x6c7967656e657261uL
+  | 3 -> key ^^ 0x7465646279746573uL
 
 #reset-options "--max_fuel 0 --z3rlimit 10"
 
@@ -80,24 +80,24 @@ let sip_round v =
   let v0 = v0 +%^ v1 in
   let v2 = v2 +%^ v3 in
 
-  let v1 = v1 <<< (u32 13) in
-  let v3 = v3 <<< (u32 16) in
+  let v1 = v1 <<< 13ul in
+  let v3 = v3 <<< 16ul in
 
   let v1 = v1 ^^ v0 in
   let v3 = v3 ^^ v2 in
 
-  let v0 = v0 <<< (u32 32) in
+  let v0 = v0 <<< 32ul in
 
   let v2 = v2 +%^ v1 in
   let v0 = v0 +%^ v3 in
 
-  let v1 = v1 <<< (u32 17) in
-  let v3 = v3 <<< (u32 21) in
+  let v1 = v1 <<< 17ul in
+  let v3 = v3 <<< 21ul in
 
   let v1 = v1 ^^ v2 in
   let v3 = v3 ^^ v0 in
 
-  let v2 = v2 <<< (u32 32) in
+  let v2 = v2 <<< 32ul in
 
   to_state v0 v1 v2 v3
 
@@ -169,9 +169,9 @@ val get_unaligned:
   Tot (UInt64.t) (decreases ((Seq.length data) - i))
 let rec get_unaligned data len i mi =
   if i >= (Seq.length data) then
-    mi +%^ (((u64 (UInt.to_uint_t 64 len)) %^ (u64 256)) <<^ (u32 56))
+    mi +%^ (((u64 (UInt.to_uint_t 64 len)) %^ 256uL) <<^ 56ul)
   else (
-    assert_norm(i < Seq.length data);
+    assert(i < Seq.length data);
     let b = Seq.index data i in
     let bl = Seq.upd (Seq.create 8 (u8 0)) 0 b in
     let b64: UInt64.t = uint64_from_le bl in
@@ -189,7 +189,7 @@ val siphash_unaligned :
 let siphash_unaligned v data c_rounds =
   let off = ((Seq.length data) / 8) * 8 in
   let remaining = Seq.slice data off (Seq.length data) in
-  let mi = get_unaligned remaining (Seq.length data) 0 (u64 0) in
+  let mi = get_unaligned remaining (Seq.length data) 0 0uL in
   siphash_inner v mi c_rounds
 
 
@@ -205,7 +205,7 @@ let siphash_finalize v d_rounds =
   let v2 = Seq.index v 2 in
   let v3 = Seq.index v 3 in
 
-  let v2 = v2 ^^ (u64 0xff) in
+  let v2 = v2 ^^ 0xffuL in
   let v = to_state v0 v1 v2 v3 in
 
   siphash_rounds v d_rounds
@@ -252,11 +252,11 @@ let siphash24 key0 key1 data =
 // Test 1
 //
 
-let test_key0 = (u64 0x0706050403020100)
-let test_key1 = (u64 0x0F0E0D0C0B0A0908)
+let test_key0 = 0x0706050403020100uL
+let test_key1 = 0x0F0E0D0C0B0A0908uL
 
 let test_data0: bytes = Seq.seq_of_list []
-let test_expected0 = (u64 0x726FDB47DD0E0E31)
+let test_expected0 = 0x726FDB47DD0E0E31uL
 
 //
 // Main

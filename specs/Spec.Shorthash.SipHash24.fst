@@ -49,22 +49,30 @@ val to_state:
   v1: UInt64.t ->
   v2: UInt64.t ->
   v3: UInt64.t ->
-  Tot (state)
+  Tot (s:state{length s = 4 /\ index s 0 == v0 /\ index s 1 == v1 /\ index s 2 == v2 /\ index s 3 == v3})
 let to_state v0 v1 v2 v3 =
-  let s = [v0; v1; v2; v3] in
-  assert_norm(List.length s = size_state);
-  Seq.seq_of_list s
+  let s = create 4 v0 in
+  let s = s.[1] <- v1 in
+  let s = s.[2] <- v2 in
+  let s = s.[3] <- v3 in 
+  s
 
 
-(* XXX: is there a numeric suffix that means UInt64.t? *)
+val siphash_init:
+  key0 :UInt64.t ->
+  key1 :UInt64.t ->
+  Tot (s:state{length s = 4
+             /\ index s 0 == key0 ^^ 0x736f6d6570736575uL
+	     /\ index s 1 == key1 ^^ 0x646f72616e646f6duL
+	     /\ index s 2 == key0 ^^ 0x6c7967656e657261uL
+	     /\ index s 3 == key1 ^^ 0x7465646279746573uL})
+let siphash_init key0 key1 =
+  let v0 = key0 ^^ 0x736f6d6570736575uL in
+  let v1 = key1 ^^ 0x646f72616e646f6duL in
+  let v2 = key0 ^^ 0x6c7967656e657261uL in
+  let v3 = key1 ^^ 0x7465646279746573uL in
+  to_state v0 v1 v2 v3
 
-val init: n:nat{n < 4} -> key:UInt64.t -> Tot UInt64.t
-let init  n key =
-  match n with
-  | 0 -> key ^^ 0x736f6d6570736575uL
-  | 1 -> key ^^ 0x646f72616e646f6duL
-  | 2 -> key ^^ 0x6c7967656e657261uL
-  | 3 -> key ^^ 0x7465646279746573uL
 
 #reset-options "--max_fuel 0 --z3rlimit 10"
 
@@ -161,13 +169,13 @@ let rec siphash_aligned v data c_rounds =
 
 #reset-options "--max_fuel 0 --z3rlimit 10"
 
-val get_unaligned:
+val get_unaligned':
   data :bytes{Seq.length data < 8} ->
   len  :nat ->
   i    :nat ->
   mi   :UInt64.t ->
   Tot (UInt64.t) (decreases ((Seq.length data) - i))
-let rec get_unaligned data len i mi =
+let rec get_unaligned' data len i mi =
   if i >= (Seq.length data) then
     mi +%^ (((u64 (UInt.to_uint_t 64 len)) %^ 256uL) <<^ 56ul)
   else (
@@ -176,7 +184,13 @@ let rec get_unaligned data len i mi =
     let bl = Seq.upd (Seq.create 8 (u8 0)) 0 b in
     let b64: UInt64.t = uint64_from_le bl in
     let mi = mi +%^ (b64 <<^ (u32 (UInt.to_uint_t 32 (i * 8)))) in
-    get_unaligned data len (i+1) mi)
+    get_unaligned' data len (i+1) mi)
+
+val get_unaligned:
+  data :bytes{Seq.length data < 8} ->
+  len  :nat ->
+  Tot (UInt64.t)
+let get_unaligned data len = get_unaligned' data len 0 0uL
 
 
 #reset-options "--max_fuel 0 --z3rlimit 10"
@@ -188,8 +202,9 @@ val siphash_unaligned :
   Tot (state)
 let siphash_unaligned v data c_rounds =
   let off = ((Seq.length data) / 8) * 8 in
+  assert(off <= Seq.length data);
   let remaining = Seq.slice data off (Seq.length data) in
-  let mi = get_unaligned remaining (Seq.length data) 0 0uL in
+  let mi = get_unaligned remaining (Seq.length remaining) in
   siphash_inner v mi c_rounds
 
 
@@ -221,12 +236,7 @@ val siphash:
   d_rounds :nat ->
   Tot (h:UInt64.t)
 let siphash key0 key1 data c_rounds d_rounds =
-  let v0 = init 0 key0 in
-  let v1 = init 1 key1 in
-  let v2 = init 2 key0 in
-  let v3 = init 3 key1 in
-
-  let state = to_state v0 v1 v2 v3 in
+  let state = siphash_init key0 key1 in
   let state = siphash_aligned state data c_rounds in
   let state = siphash_unaligned state data c_rounds in
   let state = siphash_finalize state d_rounds in

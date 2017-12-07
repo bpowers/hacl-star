@@ -41,6 +41,27 @@ let u64 = UInt64.uint_to_t
 // SipHash24
 //
 
+#reset-options "--max_fuel 0  --z3rlimit 200"
+
+[@"substitute"]
+val hupd_4: buf:sipState ->
+  v0:uint64_t -> 
+  v1:uint64_t -> 
+  v2:uint64_t -> 
+  v3:uint64_t ->
+  Stack unit (requires (fun h -> live h buf))
+             (ensures  (fun h0 _ h1 -> live h1 buf /\ modifies_1 buf h0 h1
+                                  /\ (let s = as_seq h1 buf in
+                                     Seq.index s 0 == v0 
+                                   /\ Seq.index s 1 == v1
+                                   /\ Seq.index s 2 == v2
+                                   /\ Seq.index s 3 == v3)))
+[@"substitute"]
+let hupd_4 buf v0 v1 v2 v3 =
+  buf.(0ul) <- v0;
+  buf.(1ul) <- v1;
+  buf.(2ul) <- v2;
+  buf.(3ul) <- v3
 
 val siphash_init:
   v       :sipState ->
@@ -48,12 +69,23 @@ val siphash_init:
   key1    :uint64_t ->
   Stack unit
     (requires (fun h -> live h v))
-    (ensures (fun h0 r h1 -> live h1 v /\ modifies_1 v h0 h1))
+    (ensures (fun h0 r h1 -> live h1 v /\ modifies_1 v h0 h1
+                        /\ (let seq_v = as_seq h1 v in
+                           let spec_v = Spec.siphash_init key0 key1 in
+                           seq_v == spec_v)))
 let siphash_init v key0 key1 =
-  v.(0ul) <- key0 ^^ 0x736f6d6570736575uL;
-  v.(1ul) <- key1 ^^ 0x646f72616e646f6duL;
-  v.(2ul) <- key0 ^^ 0x6c7967656e657261uL;
-  v.(3ul) <- key1 ^^ 0x7465646279746573uL
+  let spec_v = Spec.siphash_init key0 key1 in
+  let v0 = key0 ^^ 0x736f6d6570736575uL in
+  let v1 = key1 ^^ 0x646f72616e646f6duL in
+  let v2 = key0 ^^ 0x6c7967656e657261uL in
+  let v3 = key1 ^^ 0x7465646279746573uL in
+  hupd_4 v v0 v1 v2 v3;
+  let h1 = ST.get () in
+  let seq_v = as_seq h1 v in
+  Seq.lemma_eq_intro seq_v spec_v
+
+// val init_correct: Lemma (ensures (let seq_v = Hacl.Spec.Endianness.reveal_h64s (as_seq h1 v) in
+//                  seq_v = (Spec.siphash_init key0 key1)))
 
 // from chacha20 impl
 inline_for_extraction
@@ -63,15 +95,19 @@ private let rotate_left (a:uint64_t) (s:uint32_t{0 < U32.v s && U32.v s < 64}) :
 inline_for_extraction
 let op_Less_Less_Less = rotate_left
 
-#reset-options "--max_fuel 10  --z3rlimit 25"
+#reset-options "--max_fuel 0  --z3rlimit 200"
 
 
 val siphash_round:
   v  :sipState ->
   Stack unit
     (requires (fun h -> live h v))
-    (ensures (fun h0 r h1 -> live h1 v /\ modifies_1 v h0 h1))
+    (ensures (fun h0 _ h1 -> live h1 v /\ modifies_1 v h0 h1 /\
+                          (let initial_v = Hacl.Spec.Endianness.reveal_h64s (as_seq h0 v) in
+                           let seq_v = Hacl.Spec.Endianness.reveal_h64s (as_seq h1 v) in
+                           seq_v = (Spec.sip_round initial_v))))
 let siphash_round v =
+  let h0 = ST.get () in
   let siphash_round_a (v:sipState) :
     Stack unit
       (requires (fun h -> live h v))
@@ -110,7 +146,12 @@ let siphash_round v =
   in
   siphash_round_c v;
 
-  v.(2ul) <- v.(2ul) <<< 32ul
+  v.(2ul) <- v.(2ul) <<< 32ul;
+  let h1 = ST.get () in
+  let init_v = as_seq h0 v in
+  let spec_v = Spec.sip_round init_v in
+  let seq_v = as_seq h1 v in
+  Seq.lemma_eq_intro seq_v spec_v
 
 
 inline_for_extraction
@@ -136,8 +177,8 @@ val siphash24:
   Stack uint64_t
         (requires (fun h -> live h data))
         (ensures  (fun h0 r h1 -> live h1 data /\ live h0 data
-	                     /\ modifies_0 h0 h1 // data is unmodified
-	))
+                             /\ modifies_0 h0 h1 // data is unmodified
+        ))
                              // /\ (r == Spec.siphash24 key0 key1 (as_seq h0 data)))) // result matches spec
 
 val get_unaligned:

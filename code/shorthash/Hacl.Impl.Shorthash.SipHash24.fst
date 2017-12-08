@@ -108,43 +108,24 @@ val siphash_round:
                            seq_v = (Spec.sip_round initial_v))))
 let siphash_round v =
   let h0 = ST.get () in
-  let siphash_round_a (v:sipState) :
-    Stack unit
-      (requires (fun h -> live h v))
-      (ensures (fun h0 r h1 -> live h1 v /\ modifies_1 v h0 h1))
-    = (
-    v.(0ul) <- v.(0ul) +%^ v.(1ul);
-    v.(2ul) <- v.(2ul) +%^ v.(3ul);
-    v.(1ul) <- v.(1ul) <<< 13ul;
-    v.(3ul) <- v.(3ul) <<< 16ul)
-  in
-  siphash_round_a v;
-  let siphash_round_b (v:sipState) :
-    Stack unit
-      (requires (fun h -> live h v))
-      (ensures (fun h0 r h1 -> live h1 v /\ modifies_1 v h0 h1))
-    = (
-    v.(1ul) <- v.(1ul) ^^ v.(0ul);
-    v.(3ul) <- v.(3ul) ^^ v.(2ul);
+  v.(0ul) <- v.(0ul) +%^ v.(1ul);
+  v.(2ul) <- v.(2ul) +%^ v.(3ul);
+  v.(1ul) <- v.(1ul) <<< 13ul;
+  v.(3ul) <- v.(3ul) <<< 16ul;
 
-    v.(0ul) <- v.(0ul) <<< 32ul;
+  v.(1ul) <- v.(1ul) ^^ v.(0ul);
+  v.(3ul) <- v.(3ul) ^^ v.(2ul);
 
-    v.(2ul) <- v.(2ul) +%^ v.(1ul);
-    v.(0ul) <- v.(0ul) +%^ v.(3ul))
-  in
-  siphash_round_b v;
-  let siphash_round_c (v:sipState) :
-    Stack unit
-      (requires (fun h -> live h v))
-      (ensures (fun h0 r h1 -> live h1 v /\ modifies_1 v h0 h1))
-    = (
-    v.(1ul) <- v.(1ul) <<< 17ul;
-    v.(3ul) <- v.(3ul) <<< 21ul;
+  v.(0ul) <- v.(0ul) <<< 32ul;
 
-    v.(1ul) <- v.(1ul) ^^ v.(2ul);
-    v.(3ul) <- v.(3ul) ^^ v.(0ul))
-  in
-  siphash_round_c v;
+  v.(2ul) <- v.(2ul) +%^ v.(1ul);
+  v.(0ul) <- v.(0ul) +%^ v.(3ul);
+
+  v.(1ul) <- v.(1ul) <<< 17ul;
+  v.(3ul) <- v.(3ul) <<< 21ul;
+
+  v.(1ul) <- v.(1ul) ^^ v.(2ul);
+  v.(3ul) <- v.(3ul) ^^ v.(0ul);
 
   v.(2ul) <- v.(2ul) <<< 32ul;
   let h1 = ST.get () in

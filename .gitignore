@@ -1,6 +1,7 @@
 *.o
 *.so
 *.exe
+*.lax
 *.exe.dSYM
 out.krml
 *~

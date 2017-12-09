@@ -135,17 +135,34 @@ let siphash_round v =
   Seq.lemma_eq_intro seq_v spec_v
 
 
+#reset-options "--max_fuel 0  --z3rlimit 300"
+
 inline_for_extraction
 val siphash_inner:
   v  :sipState ->
   mi :uint64_t ->
   Stack unit
     (requires (fun h -> live h v))
-    (ensures (fun h0 r h1 -> live h1 v /\ modifies_1 v h0 h1))
+    (ensures (fun h0 r h1 -> live h1 v /\ modifies_1 v h0 h1)) // /\
+                          // (let initial_v = Hacl.Spec.Endianness.reveal_h64s (as_seq h0 v) in
+                          //  let seq_v = Hacl.Spec.Endianness.reveal_h64s (as_seq h1 v) in
+                          //  seq_v = (Spec.siphash_inner initial_v mi 2))))
 let siphash_inner v mi =
+  let h0 = ST.get () in
   v.(3ul) <- v.(3ul) ^^ mi;
+  let h1 = ST.get () in
   siphash_round v;
-  v.(0ul) <- v.(0ul) ^^ mi
+  let h2 = ST.get () in
+  v.(0ul) <- v.(0ul) ^^ mi;
+  let h3 = ST.get () in
+  let init_v = as_seq h0 v in
+  let spec_v = Spec.siphash_inner init_v mi 2 in
+  let h1_v = as_seq h1 v in
+  let h2_v = as_seq h2 v in
+  let seq_v = as_seq h3 v in
+  Seq.lemma_eq_intro h2_v (Spec.sip_round h1_v)//;
+  //Seq.lemma_eq_intro seq_v spec_v
+
 
 #reset-options "--max_fuel 0  --z3rlimit 20"
 

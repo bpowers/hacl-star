@@ -25,11 +25,7 @@ let u64 = UInt64.uint_to_t
 let rotate_left (a:UInt64.t) (s:UInt32.t {0 < U32.v s /\ U32.v s<64}) : Tot UInt64.t =
   ((a <<^ s) |^ (a >>^ (64ul `U32.sub` s)))
 
-let rotate_right (a:UInt64.t) (s:UInt32.t {0 < U32.v s /\ U32.v s<64}) : Tot UInt64.t =
-  ((a >>^ s) |^ (a <<^ (64ul `U32.sub` s)))
-
 let op_Less_Less_Less (a:UInt64.t) (s:UInt32.t {0 < U32.v s /\ U32.v s<64}) = rotate_left a s
-let op_Greater_Greater_Greater (a:UInt64.t) (s:UInt32.t {0 < U32.v s /\ U32.v s<32}) = rotate_right a s
 
 
 #set-options "--max_fuel 0 --z3rlimit 10"
@@ -39,12 +35,11 @@ let size_state = 4
 
 (* Base types *)
 type bytes = m:seq UInt8.t
-
-type lstate = m:list UInt64.t{List.length m = size_state}
 type state = m:seq UInt64.t{Seq.length m = size_state}
+type off   = o:nat{o < 4}
 
 
-val to_state: 
+val to_state:
   v0: UInt64.t ->
   v1: UInt64.t ->
   v2: UInt64.t ->
@@ -54,7 +49,7 @@ let to_state v0 v1 v2 v3 =
   let s = create 4 v0 in
   let s = s.[1] <- v1 in
   let s = s.[2] <- v2 in
-  let s = s.[3] <- v3 in 
+  let s = s.[3] <- v3 in
   s
 
 
@@ -76,78 +71,51 @@ let siphash_init key0 key1 =
 
 #reset-options "--max_fuel 0 --z3rlimit 10"
 
-val sip_round:
+val half_round:
   v :state ->
-  Tot (new_state:state)
-let sip_round v =
-  let v0 = Seq.index v 0 in
-  let v1 = Seq.index v 1 in
-  let v2 = Seq.index v 2 in
-  let v3 = Seq.index v 3 in
-
-  let v0 = v0 +%^ v1 in
-  let v2 = v2 +%^ v3 in
-
-  let v1 = v1 <<< 13ul in
-  let v3 = v3 <<< 16ul in
-
-  let v1 = v1 ^^ v0 in
-  let v3 = v3 ^^ v2 in
-
-  let v0 = v0 <<< 32ul in
-
-  let v2 = v2 +%^ v1 in
-  let v0 = v0 +%^ v3 in
-
-  let v1 = v1 <<< 17ul in
-  let v3 = v3 <<< 21ul in
-
-  let v1 = v1 ^^ v2 in
-  let v3 = v3 ^^ v0 in
-
-  let v2 = v2 <<< 32ul in
-
-  to_state v0 v1 v2 v3
+  a :off ->
+  b :off ->
+  c :off ->
+  d :off ->
+  s :U32.t{0 < U32.v s /\ U32.v s < 64} ->
+  t :U32.t{0 < U32.v t /\ U32.v t < 64} ->
+  Tot (state)
+let half_round v a b c d s t =
+  let v = v.[a] <- v.[a] +%^ v.[b] in
+  let v = v.[c] <- v.[c] +%^ v.[d] in
+  let v = v.[b] <- (v.[b] <<< s) ^^ v.[a] in
+  let v = v.[d] <- (v.[d] <<< t) ^^ v.[c] in
+  let v = v.[a] <- v.[a] <<< 32ul in
+  v
 
 
-#reset-options "--max_fuel 10 --z3rlimit 10"
+#reset-options "--max_fuel 0 --z3rlimit 10"
 
-val siphash_rounds :
-  v      :state ->
-  rounds :nat ->
-  Tot (state) (decreases rounds)
-let rec siphash_rounds v rounds =
-  match rounds with
-  | 0 -> v
-  | _ -> siphash_rounds (sip_round v) (rounds - 1)
+val full_round:
+  v :state ->
+  Tot (state)
+let full_round v =
+  let v = half_round v 0 1 2 3 13ul 16ul in
+  let v = half_round v 2 1 0 3 17ul 21ul in
+  v
 
+val double_round:
+  v : state ->
+  Tot (state)
+let double_round v =
+  full_round (full_round v)
 
 #reset-options "--max_fuel 0 --z3rlimit 10"
 
 val siphash_inner :
   v        :state ->
   mi       :UInt64.t -> // should be mod 8 == 0
-  c_rounds :nat ->
   Tot (state)
-let siphash_inner v mi c_rounds =
-  let v0 = Seq.index v 0 in
-  let v1 = Seq.index v 1 in
-  let v2 = Seq.index v 2 in
-  let v3 = Seq.index v 3 in
-
-  let v3 = v3 ^^ mi in
-
-  let v = to_state v0 v1 v2 v3 in
-  let v = siphash_rounds v c_rounds in
-
-  let v0 = Seq.index v 0 in
-  let v1 = Seq.index v 1 in
-  let v2 = Seq.index v 2 in
-  let v3 = Seq.index v 3 in
-
-  let v0 = v0 ^^ mi in
-
-  to_state v0 v1 v2 v3
+let siphash_inner v mi =
+  let v = v.[3] <- v.[3] ^^ mi in
+  let v = double_round v in
+  let v = v.[0] <- v.[0] ^^ mi in
+  v
 
 
 #reset-options "--max_fuel 0 --z3rlimit 10"
@@ -155,17 +123,16 @@ let siphash_inner v mi c_rounds =
 val siphash_aligned :
   v        :state ->
   data     :bytes -> // should be mod 8 == 0
-  c_rounds :nat ->
   Tot (state) (decreases (Seq.length data))
-let rec siphash_aligned v data c_rounds =
+let rec siphash_aligned v data =
   if Seq.length data < 8 then
     v
   else
     let mi = uint64_from_le (Seq.slice data 0 8) in
     let data = Seq.slice data 8 (Seq.length data)  in
-    let v = siphash_inner v mi c_rounds in
+    let v = siphash_inner v mi in
 
-    siphash_aligned v data c_rounds
+    siphash_aligned v data
 
 #reset-options "--max_fuel 0 --z3rlimit 10"
 
@@ -197,58 +164,26 @@ let get_unaligned data len = get_unaligned' data len 0 0uL
 
 val siphash_unaligned :
   v        :state ->
-  data     :bytes -> // should be mod 8 == 0
-  c_rounds :nat ->
+  data     :bytes ->
   Tot (state)
-let siphash_unaligned v data c_rounds =
+let siphash_unaligned v data =
   let off = ((Seq.length data) / 8) * 8 in
-  assert(off <= Seq.length data);
   let remaining = Seq.slice data off (Seq.length data) in
   let mi = get_unaligned remaining (Seq.length remaining) in
-  siphash_inner v mi c_rounds
+  siphash_inner v mi
 
 
 #reset-options "--max_fuel 0 --z3rlimit 10"
 
 val siphash_finalize :
   v        :state ->
-  d_rounds :nat ->
   Tot (state)
-let siphash_finalize v d_rounds =
-  let v0 = Seq.index v 0 in
-  let v1 = Seq.index v 1 in
-  let v2 = Seq.index v 2 in
-  let v3 = Seq.index v 3 in
-
-  let v2 = v2 ^^ 0xffuL in
-  let v = to_state v0 v1 v2 v3 in
-
-  siphash_rounds v d_rounds
+let siphash_finalize v =
+  let v = v.[2] <- v.[2] ^^ 0xffuL in
+  double_round (double_round v)
 
 
 #reset-options "--max_fuel 0 --z3rlimit 10"
-
-val siphash:
-  key0     :UInt64.t ->
-  key1     :UInt64.t ->
-  data     :bytes ->
-  c_rounds :nat ->
-  d_rounds :nat ->
-  Tot (h:UInt64.t)
-let siphash key0 key1 data c_rounds d_rounds =
-  let state = siphash_init key0 key1 in
-  let state = siphash_aligned state data c_rounds in
-  let state = siphash_unaligned state data c_rounds in
-  let state = siphash_finalize state d_rounds in
-
-  let v0 = Seq.index state 0 in
-  let v1 = Seq.index state 1 in
-  let v2 = Seq.index state 2 in
-  let v3 = Seq.index state 3 in
-
-  v0 ^^ v1 ^^ v2 ^^ v3
-
-#reset-options "--max_fuel 0 --z3rlimit 25"
 
 val siphash24:
   key0     :UInt64.t ->
@@ -256,7 +191,12 @@ val siphash24:
   data     :bytes ->
   Tot (h:UInt64.t)
 let siphash24 key0 key1 data =
-  siphash key0 key1 data 2 4
+  let state = siphash_init key0 key1 in
+  let state = siphash_aligned state data in
+  let state = siphash_unaligned state data in
+  let state = siphash_finalize state in
+  state.[0] ^^ state.[1] ^^ state.[2] ^^ state.[3]
+
 
 //
 // Test 1
@@ -268,62 +208,15 @@ let test_key1 = 0x0F0E0D0C0B0A0908uL
 let test_data0: bytes = Seq.seq_of_list []
 let test_expected0 = 0x726FDB47DD0E0E31uL
 
+let test_data3: bytes = Seq.seq_of_list [0uy; 1uy; 2uy]
+let test_expected3 = 9612764727700323885uL
+
+
 //
 // Main
 //
 
 val test: unit -> Tot (bool)
 let test () =
-  (test_expected0 = (siphash24 test_key0 test_key1 test_data0))
-  // assert_norm(List.Tot.length test_key1 = 20);
-  // assert_norm(List.Tot.length test_data1 = 8);
-  // assert_norm(List.Tot.length test_expected1 = 32);
-  // assert_norm(List.Tot.length test_key2 = 4);
-  // assert_norm(List.Tot.length test_data2 = 28);
-  // assert_norm(List.Tot.length test_expected2 = 32);
-  // assert_norm(List.Tot.length test_key3 = 20);
-  // assert_norm(List.Tot.length test_data3 = 50);
-  // assert_norm(List.Tot.length test_expected3 = 32);
-  // assert_norm(List.Tot.length test_key4 = 25);
-  // assert_norm(List.Tot.length test_data4 = 50);
-  // assert_norm(List.Tot.length test_expected4 = 32);
-  // assert_norm(List.Tot.length test_key5 = 20);
-  // assert_norm(List.Tot.length test_data5 = 20);
-  // assert_norm(List.Tot.length test_expected5 = 16);
-  // assert_norm(List.Tot.length test_key6 = 131);
-  // assert_norm(List.Tot.length test_data6 = 54);
-  // assert_norm(List.Tot.length test_expected6 = 32);
-  // assert_norm(List.Tot.length test_key7 = 131);
-  // assert_norm(List.Tot.length test_data7 = 152);
-  // assert_norm(List.Tot.length test_expected7 = 32);
-  // let test_key1 = createL test_key1 in
-  // let test_data1 = createL test_data1 in
-  // let test_expected1 = createL test_expected1 in
-  // let test_key2 = createL test_key2 in
-  // let test_data2 = createL test_data2 in
-  // let test_expected2 = createL test_expected2 in
-  // let test_key3 = createL test_key3 in
-  // let test_data3 = createL test_data3 in
-  // let test_expected3 = createL test_expected3 in
-  // let test_key4 = createL test_key4 in
-  // let test_data4 = createL test_data4 in
-  // let test_expected4 = createL test_expected4 in
-  // let test_key5 = createL test_key5 in
-  // let test_data5 = createL test_data5 in
-  // let test_expected5 = createL test_expected5 in
-  // let test_key6 = createL test_key6 in
-  // let test_data6 = createL test_data6 in
-  // let test_expected6 = createL test_expected6 in
-  // let test_key7 = createL test_key7 in
-  // let test_data7 = createL test_data7 in
-  // let test_expected7 = createL test_expected7 in
-
-  // (hmac test_key1 test_data1 = test_expected1) &&
-  // (hmac test_key2 test_data2 = test_expected2) &&
-  // (hmac test_key3 test_data3 = test_expected3) &&
-  // (hmac test_key4 test_data4 = test_expected4) &&
-  // (let hmac_truncated5 = Seq.slice (hmac test_key5 test_data5) 0 16 in
-  // (hmac_truncated5 = test_expected5)) &&
-  // (hmac test_key6 test_data6 = test_expected6) &&
-  // (hmac test_key7 test_data7 = test_expected7)
-
+  (test_expected0 = (siphash24 test_key0 test_key1 test_data0)) &&
+  (test_expected3 = (siphash24 test_key0 test_key1 test_data3))

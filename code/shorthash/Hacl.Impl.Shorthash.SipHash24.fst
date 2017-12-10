@@ -104,7 +104,11 @@ val half_round:
   t :uint32_ht{0 < U32.v t /\ U32.v t < 64} ->
   Stack unit
     (requires (fun h -> live h v))
-    (ensures  (fun h0 _ h1 -> live h1 v /\ modifies_1 v h0 h1))
+    (ensures  (fun h0 _ h1 -> live h1 v /\ modifies_1 v h0 h1
+                         /\ (let spec_v = Spec.half_round (as_seq h0 v)
+			                   (U32.v a) (U32.v b) (U32.v c) (U32.v d) s t in
+                            let impl_v = as_seq h1 v in
+                            impl_v == spec_v)))
 inline_for_extraction
 let half_round v a b c d s t =
   v.(a) <- v.(a) +%^ v.(b);
@@ -127,76 +131,69 @@ val full_round:
                            impl_v = spec_v)))
 inline_for_extraction
 let full_round v =
-  (**) let h0 = ST.get () in
   half_round v 0ul 1ul 2ul 3ul 13ul 16ul;
-  half_round v 2ul 1ul 0ul 3ul 13ul 16ul;
-  (**) let h1 = ST.get () in
-  (**) let init_v = as_seq h0 v in
-  (**) let spec_v = Spec.sip_round init_v in
-  (**) let seq_v = as_seq h1 v in
-  (**) Seq.lemma_eq_intro seq_v spec_v
+  half_round v 2ul 1ul 0ul 3ul 17ul 21ul
 
+inline_for_extraction
+val double_round:
+  v :sip_state ->
+  Stack unit
+    (requires (fun h -> live h v))
+    (ensures (fun h0 _ h1 -> live h1 v /\ modifies_1 v h0 h1 /\
+                          (let spec_v = Spec.double_round (as_seq h0 v) in
+                           let impl_v = as_seq h1 v in
+                           impl_v = spec_v)))
+inline_for_extraction
+let double_round v =
+  full_round v;
+  full_round v
 
 #reset-options "--max_fuel 0  --z3rlimit 200"
 
 inline_for_extraction
 val siphash_inner:
   v  :sip_state ->
-  mi :uint64_t ->
+  mi :uint64_ht ->
   Stack unit
     (requires (fun h -> live h v))
-    (ensures (fun h0 r h1 -> live h1 v /\ modifies_1 v h0 h1)) // /\
-                          // (let initial_v = Hacl.Spec.Endianness.reveal_h64s (as_seq h0 v) in
-                          //  let seq_v = Hacl.Spec.Endianness.reveal_h64s (as_seq h1 v) in
-                          //  seq_v = (Spec.siphash_inner initial_v mi 2))))
+    (ensures (fun h0 r h1 -> live h1 v /\ modifies_1 v h0 h1 /\
+                          (let spec_v = Spec.siphash_inner (as_seq h0 v) mi in
+                           let impl_v = as_seq h1 v in
+                           impl_v == spec_v)))
 let siphash_inner v mi =
   (**) let h0 = ST.get () in
   v.(3ul) <- v.(3ul) ^^ mi;
   (**) let h1 = ST.get () in
-  siphash_round v;
+  double_round v;
   (**) let h2 = ST.get () in
-  siphash_round v;
-  (**) let h3 = ST.get () in
   v.(0ul) <- v.(0ul) ^^ mi;
-  (**) let h4 = ST.get () in
+  (**) let h3 = ST.get () in
   (**) let init_v = as_seq h0 v in
-  (**) let spec_v = Spec.siphash_inner init_v mi 2 in
+  (**) let spec_v = Spec.siphash_inner init_v mi in
   (**) let h1_v = as_seq h1 v in
   (**) let h2_v = as_seq h2 v in
-  (**) let h3_v = as_seq h3 v in
-  (**) let seq_v = as_seq h4 v in
-  (**) Seq.lemma_eq_intro h2_v (Spec.sip_round h1_v);
-  (**) Seq.lemma_eq_intro h3_v (Spec.sip_round h2_v);
-  (**) Seq.lemma_eq_intro h3_v (Spec.sip_round (Spec.sip_round h1_v));
-  (**) Seq.lemma_eq_intro spec_v seq_v
+  (**) let impl_v = as_seq h3 v in
+  (**) Seq.lemma_eq_intro h2_v (Spec.double_round h1_v);
+  (**) Seq.lemma_eq_intro spec_v impl_v
 
 #reset-options "--max_fuel 0  --z3rlimit 20"
 
-// datalen needs to be representable as a 32-bit unsigned int
-val siphash24:
-  key0    :uint64_t ->
-  key1    :uint64_t ->
-  data    :uint8_p ->
-  datalen :uint32_t {U32.v datalen = length data} ->
-  Stack uint64_t
-        (requires (fun h -> live h data))
-        (ensures  (fun h0 r h1 -> live h1 data /\ live h0 data
-                             /\ modifies_0 h0 h1 // data is unmodified
-        ))
-                             // /\ (r == Spec.siphash24 key0 key1 (as_seq h0 data)))) // result matches spec
-
+inline_for_extraction
 val get_unaligned:
   buf     :uint8_p ->
-  len     :uint32_t{U32.v len = (Buffer.length buf) /\ U32.v len < 8} ->
-  datalen :uint32_t{U32.v datalen >= U32.v len} ->
-  Stack (uint64_t)
+  len     :uint32_ht{U32.v len = (Buffer.length buf) /\ U32.v len < 8} ->
+  datalen :uint32_ht{U32.v datalen >= U32.v len} ->
+  Stack (uint64_ht)
     (requires (fun h -> live h buf))
-    (ensures (fun h0 r h1 -> live h1 buf /\ modifies_0 h0 h1))
+    (ensures (fun h0 r h1 -> live h1 buf /\ modifies_0 h0 h1)) // /\
+                          // (let spec_r = Spec.get_unaligned (as_seq h0 buf) (U32.v datalen) in
+			  //  r == spec_r)))
+inline_for_extraction
 let get_unaligned buf len datalen =
   (**) push_frame ();
   let mi: uint64_p = Buffer.create 0uL 1ul in
   (**) let h0 = ST.get() in
-  let body (i:uint32_t {U32.v 0ul <= U32.v i /\ i `U32.lt` len}) :
+  let body (i:uint32_ht {U32.v 0ul <= U32.v i /\ i `U32.lt` len}) :
     Stack unit
       (requires (fun h -> live h buf /\ live h mi))
       (ensures (fun h0 r h1 -> live h1 buf /\ live h1 mi /\ modifies_1 mi h0 h1))
@@ -205,13 +202,69 @@ let get_unaligned buf len datalen =
     mi.(0ul) <- (FStar.Int.Cast.uint8_to_uint64 n) <<^ (i `U32.mul` 8ul))
   in
   for 0ul len (fun h i -> live h buf /\ live h mi /\ modifies_1 mi h0 h) body;
-  let result: uint64_t = mi.(0ul) +%^ (FStar.Int.Cast.uint32_to_uint64 (datalen `U32.rem` 256ul) <<^ 56ul) in
+  let result: uint64_ht = mi.(0ul) +%^ (FStar.Int.Cast.uint32_to_uint64 (datalen `U32.rem` 256ul) <<^ 56ul) in
   (**) pop_frame ();
   result
 
 
+
+inline_for_extraction
+val siphash_aligned:
+  v :sip_state ->
+  data    :uint8_p ->
+  datalen :uint32_ht {U32.v datalen = length data} ->
+  Stack unit
+    (requires (fun h -> live h v /\ live h data))
+    (ensures (fun h0 _ h1 -> live h1 v /\ live h1 data /\ modifies_1 v h0 h1 /\
+                          (let spec_v = Spec.siphash_aligned (as_seq h0 v) (as_seq h0 data) in
+                           let impl_v = as_seq h1 v in
+                           impl_v = spec_v)))
+inline_for_extraction
+let siphash_aligned v data datalen =
+  (**) let h0 = ST.get() in
+  let aligned_rounds = datalen `U32.div` 8ul in
+
+  let aligned_body (i:uint32_ht {U32.v 0ul <= U32.v i /\ i `U32.lt` aligned_rounds}) :
+    Stack unit
+      (requires (fun h -> live h v /\ live h data))
+      (ensures (fun h0 r h1 -> live h1 v /\ live h1 data /\ modifies_1 v h0 h1))
+    = (
+      let off = i `U32.mul_mod` 8ul in
+      let mi = hload64_le (Buffer.sub data off 8ul) in
+      siphash_inner v mi
+    )
+  in
+  for 0ul aligned_rounds (fun h i -> live h v /\ live h data /\ modifies_1 v h0 h) aligned_body
+
+
+inline_for_extraction
+val siphash_finalize:
+  v :sip_state ->
+  Stack unit
+    (requires (fun h -> live h v))
+    (ensures (fun h0 _ h1 -> live h1 v /\ modifies_1 v h0 h1 /\
+                          (let spec_v = Spec.siphash_finalize (as_seq h0 v) in
+                           let impl_v = as_seq h1 v in
+                           impl_v = spec_v)))
+inline_for_extraction
+let siphash_finalize v =
+  v.(2ul) <- v.(2ul) ^^ 0xffuL;
+  double_round v;
+  double_round v
+
 #reset-options "--max_fuel 0  --z3rlimit 25"
 
+// datalen needs to be representable as a 32-bit unsigned int
+val siphash24:
+  key0    :uint64_ht ->
+  key1    :uint64_ht ->
+  data    :uint8_p ->
+  datalen :uint32_ht {U32.v datalen = length data} ->
+  Stack uint64_ht
+        (requires (fun h -> live h data))
+        (ensures  (fun h0 r h1 -> live h1 data /\ live h0 data
+                             /\ modifies_0 h0 h1 // data is unmodified
+                             /\ (r == Spec.siphash24 key0 key1 (as_seq h0 data)))) // result matches spec
 let siphash24 key0 key1 data datalen =
 
   (**) let hinit = ST.get() in
@@ -225,9 +278,12 @@ let siphash24 key0 key1 data datalen =
 
   (**) let h1 = ST.get() in
 
+  siphash_aligned v data datalen;
+
+
   let aligned_rounds = datalen `U32.div` 8ul in
 
-  let aligned_body (i:uint32_t {U32.v 0ul <= U32.v i /\ i `U32.lt` aligned_rounds}) :
+  let aligned_body (i:uint32_ht {U32.v 0ul <= U32.v i /\ i `U32.lt` aligned_rounds}) :
     Stack unit
       (requires (fun h -> live h v /\ live h data))
       (ensures (fun h0 r h1 -> live h1 v /\ live h1 data /\ modifies_1 v h0 h1))
@@ -251,14 +307,7 @@ let siphash24 key0 key1 data datalen =
 
   (**) let h3 = ST.get() in
 
-  let finalized_body (i:uint32_t {U32.v 0ul <= U32.v i /\ i `U32.lt` 4ul}) :
-    Stack unit
-      (requires (fun h -> live h v))
-      (ensures (fun h0 r h1 -> live h1 v /\ modifies_1 v h0 h1))
-    =
-      siphash_round v
-  in
-  for 0ul 4ul (fun h i -> live h v /\ modifies_1 v h3 h) finalized_body;
+  siphash_finalize v;
 
   let result = v.(0ul) ^^ v.(1ul) ^^ v.(2ul) ^^ v.(3ul) in
 

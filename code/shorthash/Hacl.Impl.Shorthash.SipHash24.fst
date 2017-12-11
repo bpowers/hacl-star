@@ -198,21 +198,15 @@ let get_unaligned buf len datalen =
   result
 
 
-#reset-options "--initial_fuel 0 --max_fuel 5  --z3rlimit 50"
+#reset-options "--max_fuel 0 --max_ifuel 0 --z3rlimit 200"
 
-val aligned_predicate:
-  h0 :HS.mem ->
-  h1 :HS.mem ->
-  v :sip_state ->
-  data    :uint8_p ->
-  i :nat{i <= (length data)/8} ->
-  GTot (Type0)
-let aligned_predicate h0 h1 v data i =
-  let ilen: nat = i `Prims.op_Multiply` 8 in
-  let sliced_data = Seq.slice (as_seq h0 data) 0 ilen in
-  let spec_v = Spec.siphash_aligned (as_seq h0 v) sliced_data in
-  let init_v = as_seq h1 v in
-  init_v == spec_v
+let lemma_modifies_0_is_modifies_1 (#a:Type) (h:HyperStack.mem) (b:buffer a{live h b}) : Lemma
+  (modifies_1 b h h) =
+  lemma_modifies_sub_1 h h b
+
+
+#reset-options "--initial_fuel 0 --max_fuel 2  --z3rlimit 20"
+
 
 inline_for_extraction
 val siphash_aligned:
@@ -225,27 +219,33 @@ val siphash_aligned:
                          /\ True))
 inline_for_extraction
 let siphash_aligned v data datalen =
-  (**) let hstart = ST.get() in
-
+  (**) let h0 = ST.get() in
+  (**) let inv (h1:HS.mem) (i:nat) : Type0 =
+         i <= (length data)/8
+       /\ live h1 v /\ live h1 data /\ modifies_1 v h0 h1
+       /\ (let ilen: nat = i `Prims.op_Multiply` 8 in
+          let arg_v = as_seq h0 v in
+          let sliced_data = Seq.slice (as_seq h0 data) 0 ilen in
+          let spec_v = Spec.siphash_aligned arg_v sliced_data in
+          let impl_v = as_seq h1 v in
+          (i == 0 ==> impl_v == arg_v) /\ (i <> 0 ==> impl_v == spec_v))
+          // (i == 0 ==> impl_v == (as_seq h0 v)) /\ (i <> 0 ==> impl_v == spec_v))
+       in
   let aligned_rounds = datalen `U32.div` 8ul in
 
   let aligned_body (i:uint32_ht {U32.v 0ul <= U32.v i /\ i `U32.lt` aligned_rounds}) :
     Stack unit
-      (requires (fun h -> live h v /\ live h data))
-      (ensures (fun h0 r h1 -> live h1 v /\ live h1 data /\ modifies_1 v h0 h1
-                          /\ aligned_predicate hstart h1 v data (U32.v i)))
+      (requires (fun h -> inv h (U32.v i)))
+      (ensures  (fun h0 _ h1 -> inv h1 (U32.v i + 1)))
     = (
       let off = i `U32.mul_mod` 8ul in
       let mi = hload64_le (Buffer.sub data off 8ul) in
       siphash_inner v mi
     )
   in
-  for 0ul
-      aligned_rounds
-      (fun h i -> live h v
-             /\ live h data
-             /\ modifies_1 v hstart h)
-      aligned_body
+  (**) lemma_modifies_0_is_modifies_1 h0 v;
+  for 0ul aligned_rounds inv aligned_body;
+  (**) let h1 = ST.get() in ()
 
 
 inline_for_extraction

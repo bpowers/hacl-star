@@ -202,21 +202,84 @@ let siphash24 key0 key1 data =
 // Test 1
 //
 
+val test_input:
+  i:UInt8.t -> 
+  Tot (bytes) (decreases (U8.v i))
+let rec test_input i =
+  let open FStar.UInt8 in
+  if i =^ 0uy then
+    create 0 0uy
+  else (
+    let m = i -^ 1uy in
+    append (test_input m) (create 1 m)
+  )
+
 let test_key0 = 0x0706050403020100uL
 let test_key1 = 0x0F0E0D0C0B0A0908uL
 
-let test_data0: bytes = Seq.seq_of_list []
+let test_data0: bytes = seq_of_list []
 let test_expected0 = 0x726FDB47DD0E0E31uL
 
-let test_data3: bytes = Seq.seq_of_list [0uy; 1uy; 2uy]
+let test_data1: bytes = seq_of_list [0uy]
+
+let test_data3: bytes = seq_of_list [0uy; 1uy; 2uy]
 let test_expected3 = 9612764727700323885uL
+
+let expected_output : (l:seq UInt64.t) = seq_of_list [
+  0x726FDB47DD0E0E31uL; 0x74F839C593DC67FDuL; 0x0D6C8009D9A94F5AuL;
+  0x85676696D7FB7E2DuL; 0xCF2794E0277187B7uL; 0x18765564CD99A68DuL;
+  0xCBC9466E58FEE3CEuL; 0xAB0200F58B01D137uL; 0x93F5F5799A932462uL;
+  0x9E0082DF0BA9E4B0uL; 0x7A5DBBC594DDB9F3uL; 0xF4B32F46226BADA7uL;
+  0x751E8FBC860EE5FBuL; 0x14EA5627C0843D90uL; 0xF723CA908E7AF2EEuL;
+  0xA129CA6149BE45E5uL; 0x3F2ACC7F57C29BDBuL; 0x699AE9F52CBE4794uL;
+  0x4BC1B3F0968DD39CuL; 0xBB6DC91DA77961BDuL; 0xBED65CF21AA2EE98uL;
+  0xD0F2CBB02E3B67C7uL; 0x93536795E3A33E88uL; 0xA80C038CCD5CCEC8uL;
+  0xB8AD50C6F649AF94uL; 0xBCE192DE8A85B8EAuL; 0x17D835B85BBB15F3uL;
+  0x2F2E6163076BCFADuL; 0xDE4DAAACA71DC9A5uL; 0xA6A2506687956571uL;
+  0xAD87A3535C49EF28uL; 0x32D892FAD841C342uL; 0x7127512F72F27CCEuL;
+  0xA7F32346F95978E3uL; 0x12E0B01ABB051238uL; 0x15E034D40FA197AEuL;
+  0x314DFFBE0815A3B4uL; 0x027990F029623981uL; 0xCADCD4E59EF40C4DuL;
+  0x9ABFD8766A33735CuL; 0x0E3EA96B5304A7D0uL; 0xAD0C42D6FC585992uL;
+  0x187306C89BC215A9uL; 0xD4A60ABCF3792B95uL; 0xF935451DE4F21DF2uL;
+  0xA9538F0419755787uL; 0xDB9ACDDFF56CA510uL; 0xD06C98CD5C0975EBuL;
+  0xE612A3CB9ECBA951uL; 0xC766E62CFCADAF96uL; 0xEE64435A9752FE72uL;
+  0xA192D576B245165AuL; 0x0A8787BF8ECB74B2uL; 0x81B3E73D20B49B6FuL;
+  0x7FA8220BA3B2ECEAuL; 0x245731C13CA42499uL; 0xB78DBFAF3A8D83BDuL;
+  0xEA1AD565322A1A0BuL; 0x60E61C23A3795013uL; 0x6606D7E446282B93uL;
+  0x6CA4ECB15C5F91E1uL; 0x9F626DA15C9625F3uL; 0xE51B38608EF25F57uL;
+  0x958A324CEB064572uL
+]
 
 
 //
 // Main
 //
 
+val test_all:
+  i:UInt8.t{0 <= (U8.v i) /\ (U8.v i) <= 64} ->
+  Tot (bool) (decreases (64 - (U8.v i)))
+let rec test_all i =
+  let open FStar.UInt8 in
+  if i =^ 64uy then
+    true
+  else (
+    let ii = U8.v i in
+    assert(ii < 64);
+    let j = i +^ 1uy in
+    if ii >= length expected_output then
+      false
+    else (
+      let expected = expected_output.[(U8.v i)] in
+      let actual = siphash24 test_key0 test_key1 (test_input i) in
+      (expected = actual) && test_all j
+    )
+  )
+
 val test: unit -> Tot (bool)
 let test () =
+  (test_data0 = test_input 0uy) &&
+  (test_data1 = test_input 1uy) &&
+  (test_data3 = test_input 3uy) &&
   (test_expected0 = (siphash24 test_key0 test_key1 test_data0)) &&
-  (test_expected3 = (siphash24 test_key0 test_key1 test_data3))
+  (test_expected3 = (siphash24 test_key0 test_key1 test_data3)) &&
+  test_all 0uy

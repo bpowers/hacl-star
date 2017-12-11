@@ -22,7 +22,7 @@ let zero #f : felem f = zero_vec #f.bits
 let one #f : felem f = elem_vec #f.bits 0
 
 let fadd (#f:field) (a:felem f) (b:felem f) : felem f = logxor_vec #f.bits a b
-let op_Plus_At e1 e2 = fadd e1 e2
+let op_Plus_At (#f:field) (a:felem f) (b:felem f) : felem f = fadd a b
 
 val add_comm: #f:field -> a:felem f -> b:felem f -> Lemma (a +@ b == b +@ a)
 let add_comm #f a b = lemma_eq_intro (a +@ b) (b +@ a)

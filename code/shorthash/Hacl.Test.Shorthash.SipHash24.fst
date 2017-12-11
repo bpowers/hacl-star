@@ -27,7 +27,7 @@ let test_1 () =
   let actual: Buffer.buffer FStar.UInt64.t = Buffer.createL [result] in
 
   // (* Display the result *)
-  TestLib.compare_and_print (C.String.of_literal "Test 0") expected actual 8ul;
+  // TestLib.compare_and_print (C.String.of_literal "Test 0") expected actual 8ul;
 
   (* Pop the memory frame *)
   (**) pop_frame()

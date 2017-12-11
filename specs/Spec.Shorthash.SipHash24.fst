@@ -177,10 +177,11 @@ let siphash_unaligned v data =
 
 val siphash_finalize :
   v        :state ->
-  Tot (state)
+  Tot (UInt64.t)
 let siphash_finalize v =
   let v = v.[2] <- v.[2] ^^ 0xffuL in
-  double_round (double_round v)
+  let v = double_round (double_round v) in
+  v.[0] ^^ v.[1] ^^ v.[2] ^^ v.[3]
 
 
 #reset-options "--max_fuel 0 --z3rlimit 10"
@@ -189,13 +190,12 @@ val siphash24:
   key0     :UInt64.t ->
   key1     :UInt64.t ->
   data     :bytes ->
-  Tot (h:UInt64.t)
+  Tot (UInt64.t)
 let siphash24 key0 key1 data =
   let state = siphash_init key0 key1 in
   let state = siphash_aligned state data in
   let state = siphash_unaligned state data in
-  let state = siphash_finalize state in
-  state.[0] ^^ state.[1] ^^ state.[2] ^^ state.[3]
+  siphash_finalize state
 
 
 //

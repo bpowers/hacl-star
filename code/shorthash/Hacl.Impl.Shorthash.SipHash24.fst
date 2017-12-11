@@ -16,6 +16,7 @@ open FStar.UInt64
 module U32 = FStar.UInt32
 module U64 = FStar.UInt64
 module H64 = FStar.UInt64
+module HS = FStar.HyperStack
 
 module Spec = Spec.Shorthash.SipHash24
 
@@ -161,20 +162,10 @@ val siphash_inner:
                            let impl_v = as_seq h1 v in
                            impl_v == spec_v)))
 let siphash_inner v mi =
-  (**) let h0 = ST.get () in
   v.(3ul) <- v.(3ul) ^^ mi;
-  (**) let h1 = ST.get () in
   double_round v;
-  (**) let h2 = ST.get () in
-  v.(0ul) <- v.(0ul) ^^ mi;
-  (**) let h3 = ST.get () in
-  (**) let init_v = as_seq h0 v in
-  (**) let spec_v = Spec.siphash_inner init_v mi in
-  (**) let h1_v = as_seq h1 v in
-  (**) let h2_v = as_seq h2 v in
-  (**) let impl_v = as_seq h3 v in
-  (**) Seq.lemma_eq_intro h2_v (Spec.double_round h1_v);
-  (**) Seq.lemma_eq_intro spec_v impl_v
+  v.(0ul) <- v.(0ul) ^^ mi
+
 
 #reset-options "--max_fuel 0  --z3rlimit 20"
 
@@ -207,6 +198,21 @@ let get_unaligned buf len datalen =
   result
 
 
+#reset-options "--initial_fuel 0 --max_fuel 5  --z3rlimit 50"
+
+val aligned_predicate:
+  h0 :HS.mem ->
+  h1 :HS.mem ->
+  v :sip_state ->
+  data    :uint8_p ->
+  i :nat{i <= (length data)/8} ->
+  GTot (Type0)
+let aligned_predicate h0 h1 v data i =
+  let ilen: nat = i `Prims.op_Multiply` 8 in
+  let sliced_data = Seq.slice (as_seq h0 data) 0 ilen in
+  let spec_v = Spec.siphash_aligned (as_seq h0 v) sliced_data in
+  let init_v = as_seq h1 v in
+  init_v == spec_v
 
 inline_for_extraction
 val siphash_aligned:
@@ -215,26 +221,54 @@ val siphash_aligned:
   datalen :uint32_ht {U32.v datalen = length data} ->
   Stack unit
     (requires (fun h -> live h v /\ live h data))
-    (ensures (fun h0 _ h1 -> live h1 v /\ live h1 data /\ modifies_1 v h0 h1 /\
-                          (let spec_v = Spec.siphash_aligned (as_seq h0 v) (as_seq h0 data) in
-                           let impl_v = as_seq h1 v in
-                           impl_v = spec_v)))
+    (ensures  (fun h0 _ h1 -> live h1 v /\ live h1 data /\ modifies_1 v h0 h1
+                         /\ True))
 inline_for_extraction
 let siphash_aligned v data datalen =
-  (**) let h0 = ST.get() in
+  (**) let hstart = ST.get() in
+
   let aligned_rounds = datalen `U32.div` 8ul in
 
   let aligned_body (i:uint32_ht {U32.v 0ul <= U32.v i /\ i `U32.lt` aligned_rounds}) :
     Stack unit
       (requires (fun h -> live h v /\ live h data))
-      (ensures (fun h0 r h1 -> live h1 v /\ live h1 data /\ modifies_1 v h0 h1))
+      (ensures (fun h0 r h1 -> live h1 v /\ live h1 data /\ modifies_1 v h0 h1
+                          /\ aligned_predicate hstart h1 v data (U32.v i)))
     = (
       let off = i `U32.mul_mod` 8ul in
       let mi = hload64_le (Buffer.sub data off 8ul) in
       siphash_inner v mi
     )
   in
-  for 0ul aligned_rounds (fun h i -> live h v /\ live h data /\ modifies_1 v h0 h) aligned_body
+  for 0ul
+      aligned_rounds
+      (fun h i -> live h v
+             /\ live h data
+             /\ modifies_1 v hstart h)
+      aligned_body
+
+
+inline_for_extraction
+val siphash_unaligned:
+  v :sip_state ->
+  data    :uint8_p ->
+  datalen :uint32_ht {U32.v datalen = length data} ->
+  Stack unit
+    (requires (fun h -> live h v /\ live h data))
+    (ensures (fun h0 _ h1 -> live h1 v /\ live h1 data /\ modifies_1 v h0 h1 /\
+                          (let spec_v = Spec.siphash_unaligned (as_seq h0 v) (as_seq h0 data) in
+                           let impl_v = as_seq h1 v in
+                           impl_v = spec_v)))
+inline_for_extraction
+let siphash_unaligned v data datalen =
+  let final_off = (datalen `U32.div` 8ul) `U32.mul_mod` 8ul in
+  let slice_len = datalen `U32.sub` final_off in
+  let final_mi = get_unaligned (Buffer.sub data final_off slice_len) slice_len datalen in
+
+  siphash_inner v final_mi;
+
+  v.(2ul) <- v.(2ul) ^^ 0xffuL
+
 
 
 inline_for_extraction
@@ -250,7 +284,9 @@ inline_for_extraction
 let siphash_finalize v =
   v.(2ul) <- v.(2ul) ^^ 0xffuL;
   double_round v;
-  double_round v
+  double_round v;
+  v.(0ul) ^^ v.(1ul) ^^ v.(2ul) ^^ v.(3ul)
+
 
 #reset-options "--max_fuel 0  --z3rlimit 25"
 
@@ -267,52 +303,16 @@ val siphash24:
                              /\ (r == Spec.siphash24 key0 key1 (as_seq h0 data)))) // result matches spec
 let siphash24 key0 key1 data datalen =
 
-  (**) let hinit = ST.get() in
-
   (**) push_frame ();
   (**) let h0 = ST.get() in
 
   let v = Buffer.create 0uL 4ul in
 
   siphash_init v key0 key1;
-
-  (**) let h1 = ST.get() in
-
   siphash_aligned v data datalen;
+  siphash_unaligned v data datalen;
+  let result = siphash_finalize v in
 
-
-  let aligned_rounds = datalen `U32.div` 8ul in
-
-  let aligned_body (i:uint32_ht {U32.v 0ul <= U32.v i /\ i `U32.lt` aligned_rounds}) :
-    Stack unit
-      (requires (fun h -> live h v /\ live h data))
-      (ensures (fun h0 r h1 -> live h1 v /\ live h1 data /\ modifies_1 v h0 h1))
-    = (
-      let off = i `U32.mul_mod` 8ul in
-      let mi = hload64_le (Buffer.sub data off 8ul) in
-      siphash_inner v mi
-    )
-  in
-  for 0ul aligned_rounds (fun h i -> live h v /\ live h data /\ modifies_1 v h1 h) aligned_body;
-
-  (**) let h2 = ST.get() in
-
-  let final_off = (datalen `U32.div` 8ul) `U32.mul_mod` 8ul in
-  let slice_len = datalen `U32.sub` final_off in
-  let final_mi = get_unaligned (Buffer.sub data final_off slice_len) slice_len datalen in
-
-  siphash_inner v final_mi;
-
-  v.(2ul) <- v.(2ul) ^^ 0xffuL;
-
-  (**) let h3 = ST.get() in
-
-  siphash_finalize v;
-
-  let result = v.(0ul) ^^ v.(1ul) ^^ v.(2ul) ^^ v.(3ul) in
-
-  (* Pop the memory frame *)
   (**) pop_frame ();
 
-  (**) let hfin = ST.get() in
   result

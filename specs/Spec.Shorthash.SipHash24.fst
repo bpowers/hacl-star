@@ -122,8 +122,8 @@ let siphash_inner v mi =
 
 val siphash_aligned :
   v        :state ->
-  data     :bytes -> // should be mod 8 == 0
-  Tot (state) (decreases (Seq.length data))
+  data     :bytes ->
+  Tot (state) (decreases (length data))
 let rec siphash_aligned v data =
   if Seq.length data < 8 then
     v
@@ -131,8 +131,8 @@ let rec siphash_aligned v data =
     let mi = uint64_from_le (Seq.slice data 0 8) in
     let data = Seq.slice data 8 (Seq.length data)  in
     let v = siphash_inner v mi in
-
     siphash_aligned v data
+
 
 #reset-options "--max_fuel 0 --z3rlimit 10"
 
@@ -155,7 +155,7 @@ let rec get_unaligned' data len i mi =
 
 val get_unaligned:
   data :bytes{Seq.length data < 8} ->
-  len  :nat ->
+  len  :nat -> // length of original data passed to siphash24
   Tot (UInt64.t)
 let get_unaligned data len = get_unaligned' data len 0 0uL
 
@@ -169,7 +169,7 @@ val siphash_unaligned :
 let siphash_unaligned v data =
   let off = ((Seq.length data) / 8) * 8 in
   let remaining = Seq.slice data off (Seq.length data) in
-  let mi = get_unaligned remaining (Seq.length remaining) in
+  let mi = get_unaligned remaining (Seq.length data) in
   siphash_inner v mi
 
 

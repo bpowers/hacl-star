@@ -120,18 +120,25 @@ let siphash_inner v mi =
 
 #reset-options "--max_fuel 0 --z3rlimit 10"
 
+val siphash_aligned' :
+  v        :state ->
+  data     :seq UInt64.t ->
+  Tot (state) (decreases (length data))
+let rec siphash_aligned' v data =
+  match Seq.length data with
+  | 0 -> v
+  | _ -> (let mi = data.[0] in
+         let data = Seq.slice data 1 (Seq.length data) in
+         siphash_aligned' (siphash_inner v mi) data)
+
 val siphash_aligned :
   v        :state ->
   data     :bytes ->
   Tot (state) (decreases (length data))
-let rec siphash_aligned v data =
-  if Seq.length data < 8 then
-    v
-  else
-    let mi = uint64_from_le (Seq.slice data 0 8) in
-    let data = Seq.slice data 8 (Seq.length data)  in
-    let v = siphash_inner v mi in
-    siphash_aligned v data
+let siphash_aligned v data =
+  let aligned_len = (Seq.length data) / 8 in
+  let aligned_data = uint64s_from_le aligned_len (Seq.slice data 0 (aligned_len * 8)) in
+  siphash_aligned' v aligned_data
 
 
 #reset-options "--max_fuel 0 --z3rlimit 10"

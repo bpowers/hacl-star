@@ -167,6 +167,61 @@ let siphash_inner v mi =
   v.(0ul) <- v.(0ul) ^^ mi
 
 
+#reset-options "--max_fuel 0 --max_ifuel 0 --z3rlimit 200"
+
+let lemma_modifies_0_is_modifies_1 (#a:Type) (h:HyperStack.mem) (b:buffer a{live h b}) : Lemma
+  (modifies_1 b h h) =
+  lemma_modifies_sub_1 h h b
+
+
+#reset-options "--initial_fuel 0 --max_fuel 4  --z3rlimit 200"
+
+
+inline_for_extraction
+val siphash_aligned:
+  v :sip_state ->
+  data    :uint8_p ->
+  datalen :uint32_ht {U32.v datalen = length data} ->
+  Stack unit
+    (requires (fun h -> live h v /\ live h data))
+    (ensures  (fun h0 _ h1 -> live h1 v /\ live h1 data /\ modifies_1 v h0 h1
+                         /\ True))
+inline_for_extraction
+let siphash_aligned v data datalen =
+  (**) let h0 = ST.get() in
+
+  let aligned_rounds = datalen `U32.div` 8ul in
+
+  (**) let inv (h1:HS.mem) (i:nat) : Type0 =
+         i <= (length data)/8 /\ (i `Prims.op_Multiply` 8 <= U32.v datalen)
+       /\ live h1 v /\ live h1 data /\ modifies_1 v h0 h1
+       /\ (let (ilen:nat{ilen <= U32.v datalen}) = i `Prims.op_Multiply` 8 in
+          let arg_v = as_seq h0 v in
+          let data_v = as_seq h0 data in
+          let sliced_data = Seq.slice data_v 0 ilen in
+          let spec_v = Spec.siphash_aligned arg_v sliced_data in
+          let impl_v = as_seq h1 v in
+	  Seq.lemma_len_slice data_v 0 ilen;
+	  Seq.length sliced_data <= length data
+        /\ impl_v == spec_v)
+          // (i == 0 ==> Seq.length sliced_data == 0 /\ arg_v == spec_v)) // /\ (i <> 0 ==> True)) // impl_v == spec_v))
+       in
+
+  let aligned_body (i:uint32_ht {U32.v 0ul <= U32.v i /\ i `U32.lt` aligned_rounds}) :
+    Stack unit
+      (requires (fun h -> inv h (U32.v i)))
+      (ensures  (fun h0 _ h1 -> inv h1 (U32.v i + 1)))
+    = (
+      let off = i `U32.mul` 8ul in
+      let mi = hload64_le (Buffer.sub data off 8ul) in
+      siphash_inner v mi
+    )
+  in
+  (**) lemma_modifies_0_is_modifies_1 h0 v;
+  for 0ul aligned_rounds inv aligned_body;
+  (**) let h1 = ST.get() in ()
+
+
 #reset-options "--max_fuel 0  --z3rlimit 20"
 
 inline_for_extraction
@@ -196,56 +251,6 @@ let get_unaligned buf len datalen =
   let result: uint64_ht = mi.(0ul) +%^ (FStar.Int.Cast.uint32_to_uint64 (datalen `U32.rem` 256ul) <<^ 56ul) in
   (**) pop_frame ();
   result
-
-
-#reset-options "--max_fuel 0 --max_ifuel 0 --z3rlimit 200"
-
-let lemma_modifies_0_is_modifies_1 (#a:Type) (h:HyperStack.mem) (b:buffer a{live h b}) : Lemma
-  (modifies_1 b h h) =
-  lemma_modifies_sub_1 h h b
-
-
-#reset-options "--initial_fuel 0 --max_fuel 2  --z3rlimit 20"
-
-
-inline_for_extraction
-val siphash_aligned:
-  v :sip_state ->
-  data    :uint8_p ->
-  datalen :uint32_ht {U32.v datalen = length data} ->
-  Stack unit
-    (requires (fun h -> live h v /\ live h data))
-    (ensures  (fun h0 _ h1 -> live h1 v /\ live h1 data /\ modifies_1 v h0 h1
-                         /\ True))
-inline_for_extraction
-let siphash_aligned v data datalen =
-  (**) let h0 = ST.get() in
-  (**) let inv (h1:HS.mem) (i:nat) : Type0 =
-         i <= (length data)/8
-       /\ live h1 v /\ live h1 data /\ modifies_1 v h0 h1
-       /\ (let ilen: nat = i `Prims.op_Multiply` 8 in
-          let arg_v = as_seq h0 v in
-          let sliced_data = Seq.slice (as_seq h0 data) 0 ilen in
-          let spec_v = Spec.siphash_aligned arg_v sliced_data in
-          let impl_v = as_seq h1 v in
-          (i == 0 ==> impl_v == arg_v) /\ (i <> 0 ==> impl_v == spec_v))
-          // (i == 0 ==> impl_v == (as_seq h0 v)) /\ (i <> 0 ==> impl_v == spec_v))
-       in
-  let aligned_rounds = datalen `U32.div` 8ul in
-
-  let aligned_body (i:uint32_ht {U32.v 0ul <= U32.v i /\ i `U32.lt` aligned_rounds}) :
-    Stack unit
-      (requires (fun h -> inv h (U32.v i)))
-      (ensures  (fun h0 _ h1 -> inv h1 (U32.v i + 1)))
-    = (
-      let off = i `U32.mul_mod` 8ul in
-      let mi = hload64_le (Buffer.sub data off 8ul) in
-      siphash_inner v mi
-    )
-  in
-  (**) lemma_modifies_0_is_modifies_1 h0 v;
-  for 0ul aligned_rounds inv aligned_body;
-  (**) let h1 = ST.get() in ()
 
 
 inline_for_extraction

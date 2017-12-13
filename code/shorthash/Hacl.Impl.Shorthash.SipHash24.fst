@@ -7,6 +7,8 @@ open FStar.Buffer
 
 open C.Loops
 
+open FStar.Seq
+
 open FStar.Endianness
 open Hacl.Endianness
 open Hacl.UInt64
@@ -19,6 +21,8 @@ module H64 = FStar.UInt64
 module HS = FStar.HyperStack
 
 module Spec = Spec.Shorthash.SipHash24
+
+let op_Multiply = Prims.op_Multiply
 
 (* Definition of base types *)
 private let uint8_ht  = Hacl.UInt8.t
@@ -181,11 +185,15 @@ inline_for_extraction
 val siphash_aligned:
   v :sip_state ->
   data    :uint8_p ->
-  datalen :uint32_ht {U32.v datalen = length data} ->
+  datalen :uint32_ht {U32.v datalen = Buffer.length data} ->
   Stack unit
     (requires (fun h -> live h v /\ live h data))
     (ensures  (fun h0 _ h1 -> live h1 v /\ live h1 data /\ modifies_1 v h0 h1
-                         /\ True))
+                         /\ (let arg_v = as_seq h0 v in
+                            let data_v = as_seq h0 data in
+                            let spec_v = Spec.siphash_aligned arg_v data_v in
+                            let impl_v = as_seq h1 v in
+                            impl_v == spec_v)))
 inline_for_extraction
 let siphash_aligned v data datalen =
   (**) let h0 = ST.get() in
@@ -193,18 +201,16 @@ let siphash_aligned v data datalen =
   let aligned_rounds = datalen `U32.div` 8ul in
 
   (**) let inv (h1:HS.mem) (i:nat) : Type0 =
-         i <= (length data)/8 /\ (i `Prims.op_Multiply` 8 <= U32.v datalen)
+         i <= (Buffer.length data)/8 /\ (i `Prims.op_Multiply` 8 <= U32.v datalen)
        /\ live h1 v /\ live h1 data /\ modifies_1 v h0 h1
        /\ (let (ilen:nat{ilen <= U32.v datalen}) = i `Prims.op_Multiply` 8 in
           let arg_v = as_seq h0 v in
           let data_v = as_seq h0 data in
           let sliced_data = Seq.slice data_v 0 ilen in
-          let spec_v = Spec.siphash_aligned arg_v sliced_data in
+          let le_data_v = Spec.le_data sliced_data in
+          let spec_v = Spec.siphash_aligned' arg_v le_data_v in
           let impl_v = as_seq h1 v in
-	  Seq.lemma_len_slice data_v 0 ilen;
-	  Seq.length sliced_data <= length data
-        /\ impl_v == spec_v)
-          // (i == 0 ==> Seq.length sliced_data == 0 /\ arg_v == spec_v)) // /\ (i <> 0 ==> True)) // impl_v == spec_v))
+          impl_v = spec_v)
        in
 
   let aligned_body (i:uint32_ht {U32.v 0ul <= U32.v i /\ i `U32.lt` aligned_rounds}) :
@@ -214,15 +220,82 @@ let siphash_aligned v data datalen =
     = (
       let off = i `U32.mul` 8ul in
       let mi = hload64_le (Buffer.sub data off 8ul) in
-      siphash_inner v mi
+      siphash_inner v mi;
+      (**) let data_v = as_seq h0 data in
+      (**) let sliced_data = Seq.slice data_v 0 (U32.v off + 8) in
+      (**) let le_data_v = Spec.le_data sliced_data in
+      (**) assert(Seq.index le_data_v (U32.v i) == mi)
     )
   in
   (**) lemma_modifies_0_is_modifies_1 h0 v;
   for 0ul aligned_rounds inv aligned_body;
-  (**) let h1 = ST.get() in ()
+  (**) let h1 = ST.get() in
+  (**) let arg_v = as_seq h0 v in
+  (**) let data_v = as_seq h0 data in
+  (**) let le_data_v = Spec.le_data data_v in
+  (**) let (ilen:nat{ilen == ((U32.v datalen) / 8) `Prims.op_Multiply` 8}) = U32.v aligned_rounds `Prims.op_Multiply` 8 in
+  // try to make sure that our list w/ a direct call to le_data is the
+  // same as we used in the last round of the loop
+  // (**) let spec_v = Spec.siphash_aligned arg_v data_v in
+  // (**) let impl_v = as_seq h1 v in
+  (**) assert(le_data_v == (Spec.le_data (Seq.slice data_v 0 ilen)));
+  (**) assert(as_seq h1 v == Spec.siphash_aligned arg_v data_v)
 
 
 #reset-options "--max_fuel 0  --z3rlimit 20"
+
+inline_for_extraction
+val accumulate_unaligned:
+  buf     :uint8_p ->
+  len     :uint32_ht{U32.v len = (Buffer.length buf) /\ U32.v len < 8} ->
+  Stack (uint64_ht)
+    (requires (fun h -> live h buf))
+    (ensures (fun h0 r h1 -> live h1 buf /\ modifies_0 h0 h1)) // /\
+                          // (let spec_r = Spec.get_unaligned (as_seq h0 buf) (U32.v datalen) in
+			  //  r == spec_r)))
+inline_for_extraction
+let accumulate_unaligned buf len =
+  (**) push_frame ();
+
+  let mi: uint64_p = Buffer.create 0uL 1ul in
+
+  (**) let h0 = ST.get() in
+  (**) let inv (h1:HS.mem) (i:nat) : Type0 =
+         i <= Buffer.length buf /\ i < 8
+       /\ live h1 buf /\ live h1 mi /\ modifies_1 mi h0 h1
+       /\ (let mi0 = Seq.index (as_seq h0 mi) 0 in
+          assert(as_seq h0 mi == Seq.create 1 0uL);
+          assert(mi0 == Seq.index (Seq.create 1 0uL) 0);
+          assert(mi0 == 0uL);
+          let arg_buf = as_seq h0 buf in
+          let sliced_buf = Seq.slice arg_buf 0 i in
+	  assert(Seq.length sliced_buf == i);
+          let spec_v = Spec.accumulate_unaligned mi0 sliced_buf 0 i  in
+          let impl_v = Seq.index (as_seq h1 mi) 0 in
+          True) // impl_v == spec_v)
+       in
+
+  let body (i:uint32_ht {U32.v 0ul <= U32.v i /\ i `U32.lt` len}) :
+    Stack unit
+      (requires (fun h -> inv h (U32.v i)))
+      (ensures  (fun h0 _ h1 -> inv h1 (U32.v i + 1)))
+    = (
+      let num8 = buf.(i) in
+      let num = FStar.Int.Cast.uint8_to_uint64 num8 in
+      mi.(0ul) <- mi.(0ul) +%^ (num <<^ (i `U32.mul` 8ul));
+      (**) let arg_buf = as_seq h0 buf in
+      (**) let sliced_buf = Seq.slice arg_buf 0 (U32.v i + 1) in
+      (**) let snum:uint8_ht = Seq.index sliced_buf (U32.v i) in
+      (**) assert(snum == num8))
+  in
+  for 0ul len inv body;
+  let result = mi.(0ul) in
+
+  (**) pop_frame ();
+  (**) let h1 = ST.get() in
+  result
+
+
 
 inline_for_extraction
 val get_unaligned:
@@ -236,28 +309,14 @@ val get_unaligned:
 			  //  r == spec_r)))
 inline_for_extraction
 let get_unaligned buf len datalen =
-  (**) push_frame ();
-  let mi: uint64_p = Buffer.create 0uL 1ul in
-  (**) let h0 = ST.get() in
-  let body (i:uint32_ht {U32.v 0ul <= U32.v i /\ i `U32.lt` len}) :
-    Stack unit
-      (requires (fun h -> live h buf /\ live h mi))
-      (ensures (fun h0 r h1 -> live h1 buf /\ live h1 mi /\ modifies_1 mi h0 h1))
-    = (
-    let n = buf.(i) in
-    mi.(0ul) <- (FStar.Int.Cast.uint8_to_uint64 n) <<^ (i `U32.mul` 8ul))
-  in
-  for 0ul len (fun h i -> live h buf /\ live h mi /\ modifies_1 mi h0 h) body;
-  let result: uint64_ht = mi.(0ul) +%^ (FStar.Int.Cast.uint32_to_uint64 (datalen `U32.rem` 256ul) <<^ 56ul) in
-  (**) pop_frame ();
-  result
-
+  let mi = accumulate_unaligned buf len in
+  mi +%^ ((datalen %^ 256uL) <<^ 56ul)
 
 inline_for_extraction
 val siphash_unaligned:
   v :sip_state ->
   data    :uint8_p ->
-  datalen :uint32_ht {U32.v datalen = length data} ->
+  datalen :uint32_ht {U32.v datalen = Buffer.length data} ->
   Stack unit
     (requires (fun h -> live h v /\ live h data))
     (ensures (fun h0 _ h1 -> live h1 v /\ live h1 data /\ modifies_1 v h0 h1 /\
@@ -279,12 +338,12 @@ let siphash_unaligned v data datalen =
 inline_for_extraction
 val siphash_finalize:
   v :sip_state ->
-  Stack unit
+  Stack uint64_ht
     (requires (fun h -> live h v))
     (ensures (fun h0 _ h1 -> live h1 v /\ modifies_1 v h0 h1 /\
                           (let spec_v = Spec.siphash_finalize (as_seq h0 v) in
                            let impl_v = as_seq h1 v in
-                           impl_v = spec_v)))
+                           impl_v == spec_v)))
 inline_for_extraction
 let siphash_finalize v =
   v.(2ul) <- v.(2ul) ^^ 0xffuL;

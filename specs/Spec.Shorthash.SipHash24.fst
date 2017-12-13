@@ -154,26 +154,30 @@ let siphash_aligned v data =
 val accumulate_unaligned:
   mi   :UInt64.t ->
   data :bytes{Seq.length data < 8} ->
-  i    :nat{i < 8} ->
-  n    :nat{n <= 7 /\ i + (Seq.length data) == n} ->
+  i    :UInt32.t{U32.v i < 8} ->
+  n    :nat{n <= 7 /\ (U32.v i) + (Seq.length data) == n} ->
   Tot (UInt64.t)
-    (decreases %[(Seq.length data);n-i])
+    (decreases (Seq.length data))
 let rec accumulate_unaligned mi data i n =
   match Seq.length data with
   | 0 -> mi
   | _ -> (let bl = Seq.upd (Seq.create 8 (u8 0)) 0 data.[0] in
          let b64: UInt64.t = uint64_from_le bl in
-         let mi = mi +%^ (b64 <<^ (u32 (UInt.to_uint_t 32 (i * 8)))) in
+         let mi = mi +%^ (b64 <<^ (i `U32.mul` 8ul)) in
          let data = Seq.slice data 1 (Seq.length data) in
-	 accumulate_unaligned mi data (i + 1) n)
+	 accumulate_unaligned mi data (i `U32.add` 1ul) n)
 
+// let lemma_accumulate_0 (data:bytes{Seq.length data < 8}) (i:nat{i < 8}) (n:nat{n <= 7 /\ i + (Seq.length data) == n}) : Lemma
+//   (requires n == 0)
+//   (ensures accumulate_unaligned 0uL data 0 n == 0uL) =
+//   ()
 
 val get_unaligned:
   data :bytes{Seq.length data < 8} ->
   len  :nat -> // length of original data passed to siphash24
   Tot (UInt64.t)
 let get_unaligned data len =
-  let mi = accumulate_unaligned 0uL data 0 (Seq.length data) in
+  let mi = accumulate_unaligned 0uL data 0ul (Seq.length data) in
   mi +%^ (((u64 (UInt.to_uint_t 64 len)) %^ 256uL) <<^ 56ul)
 
 

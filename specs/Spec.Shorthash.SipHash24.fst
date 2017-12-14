@@ -167,10 +167,12 @@ let rec accumulate_unaligned mi data i n =
          let data = Seq.slice data 1 (Seq.length data) in
 	 accumulate_unaligned mi data (i `U32.add` 1ul) n)
 
-// let lemma_accumulate_0 (data:bytes{Seq.length data < 8}) (i:nat{i < 8}) (n:nat{n <= 7 /\ i + (Seq.length data) == n}) : Lemma
-//   (requires n == 0)
-//   (ensures accumulate_unaligned 0uL data 0 n == 0uL) =
-//   ()
+let lemma_accumulate_0 (mi:UInt64.t) (data:bytes{Seq.length data < 8}) (i:nat{i < 8}) (n:nat{n <= 7 /\ i + (Seq.length data) == n}) : 
+  Lemma
+    (requires n == 0)
+    (ensures (accumulate_unaligned mi data 0ul n == mi))
+    [SMTPat (accumulate_unaligned mi data 0ul n)] =
+  assert_norm(accumulate_unaligned mi data 0ul n == mi)
 
 val get_unaligned:
   data :bytes{Seq.length data < 8} ->

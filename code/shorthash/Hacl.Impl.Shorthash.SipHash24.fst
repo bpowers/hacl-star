@@ -180,7 +180,7 @@ let lemma_modifies_0_is_modifies_1 (#a:Type) (h:HyperStack.mem) (b:buffer a{live
 
 #reset-options "--initial_fuel 0 --max_fuel 4  --z3rlimit 200"
 
-
+(*
 inline_for_extraction
 val siphash_aligned:
   v :sip_state ->
@@ -240,9 +240,19 @@ let siphash_aligned v data datalen =
   // (**) let impl_v = as_seq h1 v in
   (**) assert(le_data_v == (Spec.le_data (Seq.slice data_v 0 ilen)));
   (**) assert(as_seq h1 v == Spec.siphash_aligned arg_v data_v)
+*)
 
+#reset-options "--max_fuel 0  --z3rlimit 50"
 
-#reset-options "--max_fuel 0  --z3rlimit 20"
+let lemma_accumulate_0 (mi:UInt64.t) (data:bytes{Seq.length data < 8}) (i:nat{i < 8}) (n:nat{n <= 7 /\ i + (Seq.length data) == n}) : 
+  Lemma
+    (requires True)
+    (ensures (n == 0 ==> Spec.accumulate_unaligned mi data 0ul n == mi))
+    [SMTPat (Spec.accumulate_unaligned mi data 0ul n)] =
+  assert_norm(n == 0 ==> Spec.accumulate_unaligned mi data 0ul n == mi)
+
+let as_uint64 (h:HS.mem) (mi:uint64_p{Buffer.length mi == 1}) =
+  Seq.index (as_seq h mi) 0
 
 inline_for_extraction
 val accumulate_unaligned:
@@ -262,17 +272,19 @@ let accumulate_unaligned buf len =
   (**) let h0 = ST.get() in
   (**) let inv (h1:HS.mem) (i:nat) : Type0 =
          i <= Buffer.length buf /\ i < 8
-       /\ live h1 buf /\ live h1 mi /\ modifies_1 mi h0 h1
-       /\ (let mi0 = Seq.index (as_seq h0 mi) 0 in
+       /\ live h1 buf /\ live h1 mi /\ modifies_1 mi h0 h1 
+       /\ as_seq h0 buf == as_seq h1 buf
+       /\ (let mi0 = as_uint64 h0 mi in
           assert(as_seq h0 mi == Seq.create 1 0uL);
           assert(mi0 == Seq.index (Seq.create 1 0uL) 0);
           assert(mi0 == 0uL);
           let arg_buf = as_seq h0 buf in
           let sliced_buf = Seq.slice arg_buf 0 i in
 	  assert(Seq.length sliced_buf == i);
-          let spec_v = Spec.accumulate_unaligned mi0 sliced_buf 0 i  in
-          let impl_v = Seq.index (as_seq h1 mi) 0 in
-          True) // impl_v == spec_v)
+          let spec_v = Spec.accumulate_unaligned mi0 sliced_buf 0ul i  in
+          let impl_v = as_uint64 h1 mi in
+	  let _ = lemma_accumulate_0 mi0 sliced_buf i in
+          i == 0 ==> ((Spec.accumulate_unaligned mi0 sliced_buf 0ul i) == mi0)) // (Spec.accumulate_unaligned mi0 sliced_buf 0ul i == mi0)) // impl_v == spec_v)
        in
 
   let body (i:uint32_ht {U32.v 0ul <= U32.v i /\ i `U32.lt` len}) :
@@ -280,12 +292,16 @@ let accumulate_unaligned buf len =
       (requires (fun h -> inv h (U32.v i)))
       (ensures  (fun h0 _ h1 -> inv h1 (U32.v i + 1)))
     = (
+      (**) let hbody = ST.get() in
       let num8 = buf.(i) in
       let num = FStar.Int.Cast.uint8_to_uint64 num8 in
       mi.(0ul) <- mi.(0ul) +%^ (num <<^ (i `U32.mul` 8ul));
+      (**) let ii = U32.v i in
+      (**) let mi0 = as_uint64 h0 mi in
       (**) let arg_buf = as_seq h0 buf in
-      (**) let sliced_buf = Seq.slice arg_buf 0 (U32.v i + 1) in
-      (**) let snum:uint8_ht = Seq.index sliced_buf (U32.v i) in
+      (**) let sliced_buf = Seq.slice arg_buf 0 (ii + 1) in
+      (**) let spec_v = Spec.accumulate_unaligned mi0 sliced_buf 0ul ii in
+      (**) let snum:uint8_ht = Seq.index sliced_buf (ii) in
       (**) assert(snum == num8))
   in
   for 0ul len inv body;
@@ -296,7 +312,8 @@ let accumulate_unaligned buf len =
   result
 
 
-
+#reset-options "--max_fuel 0  --z3rlimit 20"
+(*
 inline_for_extraction
 val get_unaligned:
   buf     :uint8_p ->
@@ -380,3 +397,4 @@ let siphash24 key0 key1 data datalen =
   (**) pop_frame ();
 
   result
+*)

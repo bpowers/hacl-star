@@ -9,6 +9,7 @@ open C.Loops
 
 open FStar.Seq
 
+open FStar.Int.Cast
 open FStar.Endianness
 open Hacl.Endianness
 open Hacl.UInt64
@@ -306,12 +307,41 @@ let siphash_aligned v data datalen =
 
 #reset-options "--max_fuel 0  --z3rlimit 50"
 
-let lemma_accumulate_0 (mi:UInt64.t) (data:bytes{Seq.length data < 8}) (i:UInt32.t{U32.v i < 8}) (n:nat{n <= 7 /\ (U32.v i) + (Seq.length data) == n}) :
+val lemma_accumulate_0:
+  mi   :uint64_ht ->
+  data :bytes{Seq.length data < 8} ->
+  i    :uint32_ht{U32.v i < 8} ->
+  n    :nat{n <= 7 /\ (U32.v i) + (Seq.length data) == n} ->
   Lemma
     (requires True)
     (ensures (Seq.length data == 0 ==> Spec.accumulate_unaligned mi data i n == mi))
-    [SMTPat (Spec.accumulate_unaligned mi data i n)] =
+    [SMTPat (Spec.accumulate_unaligned mi data i n)]
+let lemma_accumulate_0 mi data i n =
   assert_norm(Seq.length data == 0 ==> Spec.accumulate_unaligned mi data i n == mi)
+
+val lemma_accumulate_1:
+  mi   :uint64_ht ->
+  mi'  :uint64_ht ->
+  data :bytes{Seq.length data < 8 /\ Seq.length data > 0} ->
+  i    :uint32_ht{U32.v i < 8} ->
+  n    :nat{n <= 7 /\ (U32.v i) + (Seq.length data) == n} ->
+  Lemma
+    (requires mi' == mi +%^ (uint8_to_uint64 (Seq.index data 0) <<^ (i `U32.mul` 8ul)))
+    (ensures (Spec.accumulate_unaligned mi data i n == Spec.accumulate_unaligned mi' (Seq.slice data 1 (Seq.length data)) (i `U32.add` 1ul) n))
+    (decreases (Seq.length data))
+let rec lemma_accumulate_1 mi mi' data i n =
+  match Seq.length data with
+  | 1 -> assert_norm(Spec.accumulate_unaligned mi data i n == Spec.accumulate_unaligned mi' (Seq.slice data 1 (Seq.length data)) (i `U32.add` 1ul) n)
+  | _ -> let j = i `U32.add` 1ul in
+        let data' = (Seq.slice data 1 (Seq.length data)) in
+        let mi'' = mi' +%^ (uint8_to_uint64 (Seq.index data' 0) <<^ (j `U32.mul` 8ul)) in // Spec.accumulate_unaligned mi' (Seq.slice data 1 (Seq.length data)) j n in
+	assert(n == U32.v j + Seq.length data');
+	if Seq.length data = 0 then
+	  lemma_accumulate_0 mi' data' j n
+        else
+          lemma_accumulate_1 mi' mi'' data' j n;
+	  admit() // assert(mi' = Spec.accumulate_unaligned mi'' data' j n)
+
 
 let as_uint64 (h:HS.mem) (mi:uint64_p{Buffer.length mi == 1}) =
   Seq.index (as_seq h mi) 0
@@ -325,9 +355,11 @@ val accumulate_unaligned:
   len     :uint32_ht{U32.v len = (Buffer.length buf) /\ U32.v len < 8} ->
   Stack (uint64_ht)
     (requires (fun h -> live h buf /\ U32.v i + U32.v len < 8))
-    (ensures (fun h0 r h1 -> live h1 buf /\ modifies_0 h0 h1)) // /\
-                          // (let spec_r = Spec.get_unaligned (as_seq h0 buf) (U32.v datalen) in
-			  //  r == spec_r)))
+    (ensures (fun h0 r h1 -> live h1 buf /\ modifies_0 h0 h1
+                        /\ U32.v i + U32.v len < 8
+                        /\ (let (n:nat{n <= 7 /\ (U32.v i) + (Buffer.length buf) == n}) = (U32.v len + U32.v i) in
+                           let spec_r = Spec.accumulate_unaligned mi (as_seq h0 buf) i n in
+			   True)))//r == spec_r)))
 inline_for_extraction
 let rec accumulate_unaligned mi buf i len =
   (**) let h0 = ST.get() in
@@ -344,19 +376,21 @@ let rec accumulate_unaligned mi buf i len =
     (**) assert(U32.v len > 0);
     (**) assert(Seq.length (as_seq h0 buf) < 8);
     (**) let n = U32.v len + U32.v i in
-    let num8 = buf.(0ul) in
-    let num = FStar.Int.Cast.uint8_to_uint64 num8 in
-    let mi = mi +%^ (num <<^ (i `U32.mul` 8ul)) in
+    let num8 = buf.(0ul) in // needed to work around impure escape
+    let num = uint8_to_uint64 num8 in
+    let mi' = mi +%^ (num <<^ (i `U32.mul` 8ul)) in
     let len' = (len `U32.sub` 1ul) in
     let buf' = Buffer.sub buf 1ul len' in
-    let mi' = accumulate_unaligned mi buf' (i `U32.add` 1ul) len' in
+    (**) assert(mi' == mi +%^ (uint8_to_uint64 (Seq.index (as_seq h0 buf) 0) <<^ (i `U32.mul` 8ul)));
+    let mi'' = accumulate_unaligned mi' buf' (i `U32.add` 1ul) len' in
     (**) let h1 = ST.get() in
     (**) assert(modifies_0 h0 h1);
-    // (**) assert(mi' == Spec.accumulate_unaligned mi (as_seq h0 buf) i n);
-    mi'
+    (**) lemma_accumulate_1 mi mi' (as_seq h0 buf') (i `U32.add` 1ul) n;
+    // (**) assert(mi'' == Spec.accumulate_unaligned mi (as_seq h0 buf) i n);
+    mi''
   )
 
-  
+(*  
   else (
     (**) assert(U32.v datalen > 0);
 
@@ -433,6 +467,7 @@ let rec accumulate_unaligned mi buf i len =
   (**) pop_frame ();
   (**) let hfin = ST.get() in
   result
+*)
 
 #reset-options "--max_fuel 0  --z3rlimit 20"
 (*

@@ -157,12 +157,6 @@ let siphash_aligned v data =
 
 #reset-options "--max_fuel 0 --z3rlimit 10"
 
-let fst_as_u64 (data:bytes{Seq.length data > 0}): Tot (r:UInt64.t{U64.v r == U8.v (Seq.index data 0)}) =
-  let leb = Seq.create 8 (u8 0) in
-  assert(uint64_from_le leb == 0uL);
-  let leb = Seq.upd leb 0 data.[0] in
-  uint64_from_le leb
-
 
 // the loop within get_unaligned
 val accumulate_unaligned:
@@ -175,11 +169,11 @@ val accumulate_unaligned:
 let rec accumulate_unaligned mi data i n =
   match Seq.length data with
   | 0 -> mi
-  | _ -> (let bl = Seq.upd (Seq.create 8 (u8 0)) 0 data.[0] in
-         let b64: UInt64.t = uint64_from_le bl in
-         let mi = mi +%^ (b64 <<^ (i `U32.mul` 8ul)) in
+  | _ -> (let mib = FStar.Int.Cast.uint8_to_uint64 data.[0] in
+         let mi = mi +%^ (mib <<^ (i `U32.mul` 8ul)) in
          let data = Seq.slice data 1 (Seq.length data) in
 	 accumulate_unaligned mi data (i `U32.add` 1ul) n)
+
 
 let lemma_accumulate_0 (mi:UInt64.t) (data:bytes{Seq.length data < 8}) (n:nat{n <= 7 /\ (Seq.length data) == n}) :
   Lemma

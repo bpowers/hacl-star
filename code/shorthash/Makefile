@@ -34,7 +34,7 @@ KREMLIN_ARGS+= \
 		-I $(HACL_HOME)/code/hash \
 		-drop Prims \
 		-drop Hacl.Cast,Hacl.UInt8,Hacl.UInt16,Hacl.UInt32,Hacl.UInt64,Hacl.UInt128 \
-		-drop 'Hacl.Spec.Endianness,Hacl.Endianness,Seq.Create,Spec.*,Hacl.Impl.SHA2_256.*,Hacl.Hash.*' \
+		-drop 'Hacl.Spec.Endianness,Hacl.Endianness,Seq.Create,Spec.*,Hacl.Impl.SHA2_256.*' \
 		-bundle "Hacl.Shorthash.SipHash24=Hacl.Impl.Shorthash.SipHash24,Hacl.Shorthash.SipHash24" \
 		-ccopt -Wno-error=strict-aliasing -ccopt -march=native -ccopt -std=gnu99 \
 		$(KREMLIN_TESTLIB)

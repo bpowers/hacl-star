@@ -128,7 +128,7 @@ let half_round v a b c d s t =
 
 #reset-options "--max_fuel 0  --z3rlimit 200"
 
-inline_for_extraction
+// inline_for_extraction
 val full_round:
   v  :sip_state ->
   Stack unit
@@ -137,7 +137,7 @@ val full_round:
                           (let spec_v = Spec.full_round (as_seq h0 v) in
                            let impl_v = as_seq h1 v in
                            impl_v = spec_v)))
-inline_for_extraction
+// inline_for_extraction
 let full_round v =
   half_round v 0ul 1ul 2ul 3ul 13ul 16ul;
   half_round v 2ul 1ul 0ul 3ul 17ul 21ul
@@ -158,7 +158,6 @@ let double_round v =
 
 #reset-options "--max_fuel 0  --z3rlimit 200"
 
-inline_for_extraction
 val siphash_inner:
   v  :sip_state ->
   mi :uint64_ht ->
@@ -202,7 +201,6 @@ let lemma_aligned_0 (v:Spec.state) (data:seq UInt64.t) :
     [SMTPat (Spec.siphash_aligned' v data)] =
   assert_norm(Spec.siphash_aligned' v data == v)
 
-inline_for_extraction
 val siphash_aligned':
   v :sip_state ->
   data    :uint64_p ->
@@ -215,7 +213,6 @@ val siphash_aligned':
                             let spec_v = Spec.siphash_aligned' arg_v data_v in
                             let impl_v = as_seq h1 v in
                             impl_v == spec_v)))
-inline_for_extraction
 let rec siphash_aligned' v data datalen =
   (**) let h0 = ST.get() in
 
@@ -347,7 +344,6 @@ let as_uint64 (h:HS.mem) (mi:uint64_p{Buffer.length mi == 1}) =
   Seq.index (as_seq h mi) 0
 
 
-inline_for_extraction
 val accumulate_unaligned:
   mi      :uint64_ht ->
   buf     :uint8_p ->
@@ -360,7 +356,6 @@ val accumulate_unaligned:
                         /\ (let (n:nat{n <= 7 /\ (U32.v i) + (Buffer.length buf) == n}) = (U32.v len + U32.v i) in
                            let spec_r = Spec.accumulate_unaligned mi (as_seq h0 buf) i n in
 			   True))) // r == spec_r)))
-inline_for_extraction
 let rec accumulate_unaligned mi buf i len =
   (**) let h0 = ST.get() in
 
@@ -375,7 +370,6 @@ let rec accumulate_unaligned mi buf i len =
   ) else (
     (**) assert(U32.v len > 0);
     (**) assert(Seq.length (as_seq h0 buf) < 8);
-    (**) let n = U32.v len + U32.v i in
     let num8 = buf.(0ul) in // needed to work around impure escape
     let num = uint8_to_uint64 num8 in
     let mi' = mi +%^ (num <<^ (i `U32.mul` 8ul)) in
@@ -384,6 +378,7 @@ let rec accumulate_unaligned mi buf i len =
     (**) assert(mi' == mi +%^ (uint8_to_uint64 (Seq.index (as_seq h0 buf) 0) <<^ (i `U32.mul` 8ul)));
     let mi'' = accumulate_unaligned mi' buf' (i `U32.add` 1ul) len' in
     (**) let h1 = ST.get() in
+    (**) let n = U32.v len + U32.v i in
     (**) assert(modifies_0 h0 h1);
     // (**) assert(mi'' == Spec.accumulate_unaligned mi' (as_seq h0 buf') (i `U32.add` 1ul) n);
     mi''
@@ -408,7 +403,6 @@ let get_unaligned buf len datalen =
 
 #reset-options "--max_fuel 0  --z3rlimit 50"
 
-inline_for_extraction
 val siphash_unaligned:
   v :sip_state ->
   data    :uint8_p ->
@@ -419,7 +413,6 @@ val siphash_unaligned:
                           (let spec_v = Spec.siphash_unaligned (as_seq h0 v) (as_seq h0 data) in
                            let impl_v = as_seq h1 v in
                            True))) // impl_v = spec_v)))
-inline_for_extraction
 let siphash_unaligned v data datalen =
   (**) push_frame ();
   let final_off = (datalen `U32.div` 8ul) `U32.mul` 8ul in
@@ -429,11 +422,9 @@ let siphash_unaligned v data datalen =
 
   siphash_inner v final_mi;
 
-  v.(2ul) <- v.(2ul) ^^ 0xffuL;
   (**) pop_frame ()
 
 
-inline_for_extraction
 val siphash_finalize:
   v :sip_state ->
   Stack uint64_ht
@@ -441,7 +432,6 @@ val siphash_finalize:
     (ensures (fun h0 _ h1 -> live h1 v /\ modifies_1 v h0 h1 /\
                           (let spec_r = Spec.siphash_finalize (as_seq h0 v) in
                            True))) // impl_v == spec_v)))
-inline_for_extraction
 let siphash_finalize v =
   (**) push_frame ();
   v.(2ul) <- v.(2ul) ^^ 0xffuL;
@@ -455,6 +445,7 @@ let siphash_finalize v =
 #reset-options "--max_fuel 0  --z3rlimit 25"
 
 // datalen needs to be representable as a 32-bit unsigned int
+inline_for_extraction
 val siphash24:
   key0    :uint64_ht ->
   key1    :uint64_ht ->
@@ -465,6 +456,7 @@ val siphash24:
         (ensures  (fun h0 r h1 -> live h1 data /\ live h0 data
                              /\ modifies_0 h0 h1 // data is unmodified
                              )) // /\ (r == Spec.siphash24 key0 key1 (as_seq h0 data)))) // result matches spec
+inline_for_extraction
 let siphash24 key0 key1 data datalen =
   (**) push_frame ();
 

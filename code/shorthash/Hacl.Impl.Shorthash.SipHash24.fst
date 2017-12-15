@@ -271,27 +271,37 @@ val siphash_aligned:
                             let data_v = as_seq h0 data in
                             let spec_v = Spec.siphash_aligned arg_v data_v in
                             let impl_v = as_seq h1 v in
-                            True))) // impl_v == spec_v)))
+                            impl_v == spec_v)))
 let siphash_aligned v data datalen =
-  (**) let h0 = ST.get() in
+  (**) let hinit = ST.get() in
+
   (**) push_frame();
+  (**) let h0 = ST.get() in
 
   let len_w = datalen `U32.div` 8ul in
   let trunc_len = len_w `U32.mul` 8ul in
   let data_w = Buffer.create 0uL len_w in
+  (**) let h1 = ST.get() in
+  (**) no_upd_lemma_0 h0 h1 v;
+  (**) no_upd_lemma_0 h0 h1 data;
 
   uint64s_from_le_bytes data_w (Buffer.sub data 0ul trunc_len) len_w;
-  (**) let h1 = ST.get() in
+  (**) let h2 = ST.get() in
+  (**) assert(Buffer.modifies_1 data_w h1 h2);
+  (**) Buffer.no_upd_lemma_1 h1 h2 data_w v;
+  (**) assert((as_seq h0 v) = (as_seq h2 v));
+
+  siphash_aligned' v data_w len_w;
+  (**) let h3 = ST.get() in
 
   (**) pop_frame();
+  (**) let hfin = ST.get() in
+
   (**) let spec_w = Spec.Lib.uint64s_from_le (U32.v len_w) (Seq.slice (as_seq h0 data) 0 (U32.v trunc_len)) in
-  (**) assert(as_seq h1 data_w == spec_w);
-  ()
-
-
-
-
-
+  (**) assert(as_seq h2 data_w == spec_w);
+  (**) assert(as_seq h3 v == Spec.siphash_aligned' (as_seq h0 v) spec_w);
+  (**) assert(as_seq h3 v == Spec.siphash_aligned (as_seq h0 v) (as_seq h0 data));
+  (**) modifies_popped_1 v hinit h0 h3 hfin
 
 
 (*

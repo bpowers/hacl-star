@@ -306,31 +306,91 @@ let siphash_aligned v data datalen =
 
 #reset-options "--max_fuel 0  --z3rlimit 50"
 
-let lemma_accumulate_0 (mi:UInt64.t) (data:bytes{Seq.length data < 8}) (n:nat{n <= 7 /\ (Seq.length data) == n}) : 
+let lemma_accumulate_0 (mi:UInt64.t) (data:bytes{Seq.length data < 8}) (i:UInt32.t{U32.v i < 8}) (n:nat{n <= 7 /\ (U32.v i) + (Seq.length data) == n}) :
   Lemma
     (requires True)
-    (ensures (n == 0 ==> Spec.accumulate_unaligned mi data 0ul n == mi))
-    [SMTPat (Spec.accumulate_unaligned mi data 0ul n)] =
-  assert_norm(n == 0 ==> Spec.accumulate_unaligned mi data 0ul n == mi)
+    (ensures (Seq.length data == 0 ==> Spec.accumulate_unaligned mi data i n == mi))
+    [SMTPat (Spec.accumulate_unaligned mi data i n)] =
+  assert_norm(Seq.length data == 0 ==> Spec.accumulate_unaligned mi data i n == mi)
 
 let as_uint64 (h:HS.mem) (mi:uint64_p{Buffer.length mi == 1}) =
   Seq.index (as_seq h mi) 0
 
-(*
+
 inline_for_extraction
 val accumulate_unaligned:
+  mi      :uint64_ht ->
   buf     :uint8_p ->
+  i       :uint32_ht{U32.v i < 8} ->
   len     :uint32_ht{U32.v len = (Buffer.length buf) /\ U32.v len < 8} ->
   Stack (uint64_ht)
-    (requires (fun h -> live h buf))
+    (requires (fun h -> live h buf /\ U32.v i + U32.v len < 8))
     (ensures (fun h0 r h1 -> live h1 buf /\ modifies_0 h0 h1)) // /\
                           // (let spec_r = Spec.get_unaligned (as_seq h0 buf) (U32.v datalen) in
 			  //  r == spec_r)))
 inline_for_extraction
-let accumulate_unaligned buf len =
-  (**) push_frame ();
+let rec accumulate_unaligned mi buf i len =
+  (**) let h0 = ST.get() in
 
-  let mi: uint64_p = Buffer.create 0uL 1ul in
+  if len = 0ul then (
+    (**) let n = U32.v len + U32.v i in
+    (**) assert(U32.v len == 0);
+    (**) assert(Seq.length (as_seq h0 buf) == 0);
+    (**) lemma_accumulate_0 mi (as_seq h0 buf) 0ul (U32.v len);
+    (**) lemma_modifies_0_is_modifies_1 h0 buf;
+    (**) assert(mi == Spec.accumulate_unaligned mi (as_seq h0 buf) i n);
+    mi
+  ) else (
+    (**) assert(U32.v len > 0);
+    (**) assert(Seq.length (as_seq h0 buf) < 8);
+    (**) let n = U32.v len + U32.v i in
+    let num8 = buf.(0ul) in
+    let num = FStar.Int.Cast.uint8_to_uint64 num8 in
+    let mi = mi +%^ (num <<^ (i `U32.mul` 8ul)) in
+    let len' = (len `U32.sub` 1ul) in
+    let buf' = Buffer.sub buf 1ul len' in
+    let mi' = accumulate_unaligned mi buf' (i `U32.add` 1ul) len' in
+    (**) let h1 = ST.get() in
+    (**) assert(modifies_0 h0 h1);
+    // (**) assert(mi' == Spec.accumulate_unaligned mi (as_seq h0 buf) i n);
+    mi'
+  )
+
+  
+  else (
+    (**) assert(U32.v datalen > 0);
+
+    let mi = data.(0ul) in
+    siphash_inner v mi;
+
+    (**) let h1 = ST.get() in
+
+    let datalen' = datalen `U32.sub` 1ul in
+    let data' = Buffer.sub data 1ul datalen' in
+
+    (**) let h2 = ST.get() in
+    (**) assert(Buffer.modifies_1 v h0 h1);
+    (**) Buffer.no_upd_lemma_1 h0 h1 v data;
+    (**) Buffer.no_upd_lemma_0 h1 h2 data;
+    (**) assert((as_seq h0 data) = (as_seq h2 data));
+    (**) assert(as_seq h2 data' == Seq.slice (as_seq h2 data) 1 (U32.v datalen));
+    (**) assert(Seq.length (as_seq h2 data') == U32.v datalen');
+
+    siphash_aligned' v data' datalen';
+
+    (**) let h3 = ST.get() in
+    (**) Buffer.no_upd_lemma_1 h2 h3 v data;
+    (**) assert((as_seq h2 data) = (as_seq h3 data));
+    (**) let arg_v = as_seq h0 v in
+    (**) let data_v = as_seq h0 data in
+    (**) let impl_v = as_seq h3 v in
+    (**) assert(mi == Seq.index data_v 0);
+    (**) assert(as_seq h1 v == Spec.siphash_inner (as_seq h0 v) mi);
+    (**) assert(as_seq h1 v == as_seq h2 v);
+    (**) assert(as_seq h2 data' == Seq.slice data_v 1 (Seq.length data_v));
+    (**) assert(as_seq h3 v == Spec.siphash_aligned' (as_seq h2 v) (Seq.slice data_v 1 (Seq.length data_v)))
+  )
+
 
   (**) let h0 = ST.get() in
   (**) let inv (h1:HS.mem) (i:nat) : Type0 =
@@ -371,9 +431,8 @@ let accumulate_unaligned buf len =
   let result = mi.(0ul) in
 
   (**) pop_frame ();
-  (**) let h1 = ST.get() in
+  (**) let hfin = ST.get() in
   result
-*)
 
 #reset-options "--max_fuel 0  --z3rlimit 20"
 (*

@@ -157,6 +157,12 @@ let siphash_aligned v data =
 
 #reset-options "--max_fuel 0 --z3rlimit 10"
 
+let fst_as_u64 (data:bytes{Seq.length data > 0}): Tot (r:UInt64.t{U64.v r == U8.v (Seq.index data 0)}) =
+  let leb = Seq.create 8 (u8 0) in
+  assert(uint64_from_le leb == 0uL);
+  let leb = Seq.upd leb 0 data.[0] in
+  uint64_from_le leb
+
 
 // the loop within get_unaligned
 val accumulate_unaligned:

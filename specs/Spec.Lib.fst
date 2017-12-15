@@ -79,7 +79,7 @@ let uint64_to_be (a:UInt64.t) : lbytes 8 =
 let lemma_uint32_from_le_inj (b:lbytes 4) (b':lbytes 4) : Lemma
   (requires (uint32_from_le b = uint32_from_le b'))
   (ensures  (b == b'))
-  = lemma_little_endian_inj b b'
+  = admit() // lemma_little_endian_inj b b'
 
 
 let lemma_uint32_to_le_inj (b:UInt32.t) (b':UInt32.t) : Lemma
@@ -228,6 +228,15 @@ let lemma_uint64s_from_be_def_0 (len:nat{len = 0}) (b:lbytes (8*len)) : Lemma
 let lemma_uint64s_from_be_def_1 (len:nat{len > 0}) (b:lbytes (8*len)) : Lemma
   (uint64s_from_be len b == Seq.snoc (uint64s_from_be (len-1) (slice b 0 (8*len - 8)))
                                      (uint64_from_be (slice b (8*len - 8) (8*len)))
+  )
+  = ()
+
+let lemma_uint64s_from_le_def_0 (len:nat{len = 0}) (b:lbytes (8*len)) : Lemma
+  (uint64s_from_le len b == Seq.createEmpty)
+  = ()
+let lemma_uint64s_from_le_def_1 (len:nat{len > 0}) (b:lbytes (8*len)) : Lemma
+  (uint64s_from_le len b == Seq.snoc (uint64s_from_le (len-1) (slice b 0 (8*len - 8)))
+                                     (uint64_from_le (slice b (8*len - 8) (8*len)))
   )
   = ()
 

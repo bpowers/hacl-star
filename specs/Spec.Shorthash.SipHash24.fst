@@ -131,6 +131,15 @@ let rec siphash_aligned' v data =
          let data = Seq.slice data 1 (Seq.length data) in
          siphash_aligned' (siphash_inner v mi) data)
 
+let lemma_aligned_0 (v:state) (data:seq UInt64.t) :
+  Lemma
+    (requires Seq.length data == 0)
+    (ensures (siphash_aligned' v data == v))
+    [SMTPat (siphash_aligned' v data)] =
+  assert_norm(siphash_aligned' v data == v)
+
+
+
 val le_data:
   data :bytes ->
   Tot (s:seq UInt64.t{Seq.length s == (Seq.length data / 8)})

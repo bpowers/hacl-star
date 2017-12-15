@@ -14,6 +14,8 @@ open Hacl.Endianness
 open Hacl.UInt64
 open FStar.UInt64
 
+open Hacl.Hash.Lib.LoadStore
+
 (* Definition of aliases for modules *)
 module U32 = FStar.UInt32
 module U64 = FStar.UInt64
@@ -177,45 +179,130 @@ let lemma_modifies_0_is_modifies_1 (#a:Type) (h:HyperStack.mem) (b:buffer a{live
   (modifies_1 b h h) =
   lemma_modifies_sub_1 h h b
 
+let lemma_transitive (#t: eqtype) (a:t) (b:t) (c:t) : Lemma
+  (requires a = b /\ b = c)
+  (ensures a = c)
+  = ()
 
-let lemma_aligned_0 (v:Spec.state) (data:seq UInt64.t): 
+// let lemma_aligned_0 (v:Spec.state) (data:seq UInt64.t): 
+//   Lemma
+//     (requires True)
+//     (ensures (Seq.length data == 0 ==> (Spec.siphash_aligned' v data == v)))
+//     [SMTPat (Spec.siphash_aligned' v data)] =
+//   assert_norm(Seq.length data == 0 ==> (Spec.siphash_aligned' v data == v))
+
+
+#reset-options "--max_fuel 2  --z3rlimit 100"
+
+let lemma_aligned_0 (v:Spec.state) (data:seq UInt64.t) :
   Lemma
-    (requires True)
-    (ensures (Seq.length data == 0 ==> (Spec.siphash_aligned' v data == v)))
+    (requires Seq.length data == 0)
+    (ensures (Spec.siphash_aligned' v data == v))
     [SMTPat (Spec.siphash_aligned' v data)] =
-  assert_norm(Seq.length data == 0 ==> (Spec.siphash_aligned' v data == v))
-
-
-#reset-options "--initial_fuel 0 --max_fuel 0  --z3rlimit 100"
-
+  assert_norm(Spec.siphash_aligned' v data == v)
 
 inline_for_extraction
+val siphash_aligned':
+  v :sip_state ->
+  data    :uint64_p ->
+  datalen :uint32_ht{U32.v datalen = Buffer.length data} ->
+  Stack unit
+    (requires (fun h       -> live h v /\ live h data /\ disjoint v data))
+    (ensures  (fun h0 _ h1 -> live h1 v /\ live h1 data /\ modifies_1 v h0 h1
+                         /\ (let arg_v = as_seq h0 v in
+                            let data_v = as_seq h0 data in
+                            let spec_v = Spec.siphash_aligned' arg_v data_v in
+                            let impl_v = as_seq h1 v in
+                            impl_v == spec_v)))
+inline_for_extraction
+let rec siphash_aligned' v data datalen =
+  (**) let h0 = ST.get() in
+
+  if datalen = 0ul then (
+    ();
+    (**) assert(U32.v datalen == 0);
+    (**) assert(Seq.length (as_seq h0 data) == 0);
+    (**) lemma_aligned_0 (as_seq h0 v) (as_seq h0 data);
+    (**) lemma_modifies_0_is_modifies_1 h0 v;
+    (**) assert((as_seq h0 v) == Spec.siphash_aligned' (as_seq h0 v) (as_seq h0 data))
+  ) else (
+    (**) assert(U32.v datalen > 0);
+
+    let mi = data.(0ul) in
+    siphash_inner v mi;
+
+    (**) let h1 = ST.get() in
+
+    let datalen' = datalen `U32.sub` 1ul in
+    let data' = Buffer.sub data 1ul datalen' in
+
+    (**) let h2 = ST.get() in
+    (**) assert(Buffer.modifies_1 v h0 h1);
+    (**) Buffer.no_upd_lemma_1 h0 h1 v data;
+    (**) Buffer.no_upd_lemma_0 h1 h2 data;
+    (**) assert((as_seq h0 data) = (as_seq h2 data));
+    (**) assert(as_seq h2 data' == Seq.slice (as_seq h2 data) 1 (U32.v datalen));
+    (**) assert(Seq.length (as_seq h2 data') == U32.v datalen');
+
+    siphash_aligned' v data' datalen';
+
+    (**) let h3 = ST.get() in
+    (**) Buffer.no_upd_lemma_1 h2 h3 v data;
+    (**) assert((as_seq h2 data) = (as_seq h3 data));
+    (**) let arg_v = as_seq h0 v in
+    (**) let data_v = as_seq h0 data in
+    (**) let impl_v = as_seq h3 v in
+    (**) assert(mi == Seq.index data_v 0);
+    (**) assert(as_seq h1 v == Spec.siphash_inner (as_seq h0 v) mi);
+    (**) assert(as_seq h1 v == as_seq h2 v);
+    (**) assert(as_seq h2 data' == Seq.slice data_v 1 (Seq.length data_v));
+    (**) assert(as_seq h3 v == Spec.siphash_aligned' (as_seq h2 v) (Seq.slice data_v 1 (Seq.length data_v)))
+  )
+
+
 val siphash_aligned:
   v :sip_state ->
   data    :uint8_p ->
-  datalen :uint32_ht {U32.v datalen = Buffer.length data} ->
+  datalen :uint32_ht{U32.v datalen = Buffer.length data} ->
   Stack unit
     (requires (fun h -> live h v /\ live h data))
-    (ensures  (fun h0 _ h1 -> live h1 v /\ live h1 data /\ modifies_1 v h0 h1
+    (ensures  (fun h0 _ h1 -> live h1 v /\ live h1 data // /\ modifies_1 v h0 h1
                          /\ (let arg_v = as_seq h0 v in
                             let data_v = as_seq h0 data in
                             let spec_v = Spec.siphash_aligned arg_v data_v in
                             let impl_v = as_seq h1 v in
-                            True))) // Seq.length data_v == 0 ==> spec_v == arg_v))) // impl_v == spec_v)))
-inline_for_extraction
+                            True))) // impl_v == spec_v)))
 let siphash_aligned v data datalen =
   (**) let h0 = ST.get() in
+  (**) push_frame();
 
-  let aligned_rounds = datalen `U32.div` 8ul in
+  let len_w = datalen `U32.div` 8ul in
+  let trunc_len = len_w `U32.mul` 8ul in
+  let data_w = Buffer.create 0uL len_w in
 
+  uint64s_from_le_bytes data_w (Buffer.sub data 0ul trunc_len) len_w;
+  (**) let h1 = ST.get() in
+
+  (**) pop_frame();
+  (**) let spec_w = Spec.Lib.uint64s_from_le (U32.v len_w) (Seq.slice (as_seq h0 data) 0 (U32.v trunc_len)) in
+  (**) assert(as_seq h1 data_w == spec_w);
+  ()
+
+
+
+
+
+
+
+(*
   (**) let inv (h1:HS.mem) (i:nat) : Type0 =
          i <= (Buffer.length data)/8 /\ (i `Prims.op_Multiply` 8 <= U32.v datalen)
        /\ live h1 v /\ live h1 data /\ modifies_1 v h0 h1
-       /\ (let (ilen:nat{ilen <= U32.v datalen}) = i `Prims.op_Multiply` 8 in
+       /\ (as_seq h0 data) == (as_seq h1 data)
+       /\ (let (blen:nat{blen <= U32.v datalen}) = i `Prims.op_Multiply` 8 in
           let arg_v = as_seq h0 v in
           let data_v = as_seq h0 data in
-          let sliced_data = Seq.slice data_v 0 ilen in
-          let le_data_v = Spec.le_data sliced_data in
+          let sliced_data = Seq.slice data_v 0 blen in
           let spec_v = Spec.siphash_aligned' arg_v le_data_v in
           let impl_v = as_seq h1 v in
           Seq.length le_data_v == 0 ==> spec_v == arg_v) // True) // impl_v == spec_v)
@@ -249,7 +336,7 @@ let siphash_aligned v data datalen =
   // (**) let impl_v = as_seq h1 v in
   (**) assert(le_data_v == (Spec.le_data (Seq.slice data_v 0 ilen)))
   // (**) assert(as_seq h1 v == Spec.siphash_aligned arg_v data_v)
-
+*)
 
 #reset-options "--max_fuel 0  --z3rlimit 50"
 

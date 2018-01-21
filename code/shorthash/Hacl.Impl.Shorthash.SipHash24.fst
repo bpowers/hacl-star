@@ -450,7 +450,7 @@ val siphash24:
   key0    :uint64_ht ->
   key1    :uint64_ht ->
   data    :uint8_p ->
-  datalen :uint32_ht {U32.v datalen = Buffer.length data} ->
+  datalen :uint32_ht{U32.v datalen = Buffer.length data} ->
   Stack uint64_ht
         (requires (fun h -> live h data))
         (ensures  (fun h0 r h1 -> live h1 data /\ live h0 data
@@ -459,14 +459,10 @@ val siphash24:
 inline_for_extraction
 let siphash24 key0 key1 data datalen =
   (**) push_frame ();
-
   let v = Buffer.create 0uL 4ul in
-
   siphash_init v key0 key1;
   siphash_aligned v data datalen;
   siphash_unaligned v data datalen;
   let result = siphash_finalize v in
-
   (**) pop_frame ();
-
   result

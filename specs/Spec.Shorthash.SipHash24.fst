@@ -224,9 +224,9 @@ let siphash_finalize v =
 #reset-options "--max_fuel 0 --z3rlimit 10"
 
 val siphash24:
-  key0     :UInt64.t ->
-  key1     :UInt64.t ->
-  data     :bytes ->
+  key0 :UInt64.t ->
+  key1 :UInt64.t ->
+  data :bytes ->
   Tot (UInt64.t)
 let siphash24 key0 key1 data =
   let state = siphash_init key0 key1 in
